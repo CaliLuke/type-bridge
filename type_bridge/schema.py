@@ -175,7 +175,7 @@ class MigrationManager:
         Returns:
             TypeQL migration
         """
-        return f"define\n{attr_name} sub attribute, value {value_type};"
+        return f"define\nattribute {attr_name}, value {value_type};"
 
     def create_entity_migration(self, entity_name: str, attributes: list[str]) -> str:
         """Create a migration to add an entity.
@@ -187,7 +187,7 @@ class MigrationManager:
         Returns:
             TypeQL migration
         """
-        lines = ["define", f"{entity_name} sub entity"]
+        lines = ["define", f"entity {entity_name}"]
         for attr in attributes:
             lines.append(f"    owns {attr}")
         lines.append(";")
@@ -206,7 +206,7 @@ class MigrationManager:
         Returns:
             TypeQL migration
         """
-        lines = ["define", f"{relation_name} sub relation"]
+        lines = ["define", f"relation {relation_name}"]
 
         for role_name, _ in roles:
             lines.append(f"    relates {role_name}")

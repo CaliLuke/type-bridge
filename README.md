@@ -52,12 +52,30 @@ class Person(Entity):
     flags = EntityFlags(type_name="person")  # Optional, defaults to lowercase class name
 
     # Use Flag() for key/unique markers, generic types for cardinality
-    name: Name = Flag(Key)    # @key @card(1,1)
-    age: Optional[Age]        # @card(0,1) - optional field
-    email: Email              # @card(1,1) - default cardinality
+    name: Name = Flag(Key)    # @key (implies @card(1..1))
+    age: Optional[Age]        # @card(0..1) - optional field
+    email: Email              # @card(1..1) - default cardinality
 ```
 
-### 3. Work with Data
+### 3. Create Instances
+
+```python
+# Two ways to create instances:
+
+# Option 1: Attribute instances (fully type-safe, zero pyright errors)
+alice = Person(
+    name=Name("Alice"),
+    age=Age(30),
+    email=Email("alice@example.com")
+)
+
+# Option 2: Raw values (convenient, may show pyright warnings)
+bob = Person(name="Bob", age=25, email=Email("bob@example.com"))
+
+# Both work identically at runtime!
+```
+
+### 4. Work with Data
 
 ```python
 from type_bridge import Database, SchemaManager, EntityManager
@@ -81,11 +99,11 @@ from typing import Optional
 from type_bridge import Min, Max, Range
 
 # Cardinality via generic types:
-field: Type              # @card(1,1) - exactly one (default)
-field: Optional[Type]    # @card(0,1) - zero or one
-field: Min[2, Type]      # @card(2) - two or more (unbounded)
-field: Max[5, Type]      # @card(0,5) - zero to five
-field: Range[1, 3, Type] # @card(1,3) - one to three
+field: Type              # @card(1..1) - exactly one (default)
+field: Optional[Type]    # @card(0..1) - zero or one
+field: Min[2, Type]      # @card(2..) - two or more (unbounded)
+field: Max[5, Type]      # @card(0..5) - zero to five
+field: Range[1, 3, Type] # @card(1..3) - one to three
 ```
 
 ### 5. Using Python Inheritance

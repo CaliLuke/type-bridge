@@ -57,7 +57,7 @@ uv run python examples/advanced_usage.py
 type_bridge/
 ├── __init__.py           # Main package exports
 ├── attribute.py          # Attribute base class, concrete types (String, Long, etc.),
-│                         # and generic types (Key, Unique, Min, Max, Range, EntityFlags, RelationFlags)
+│                         # Flag system (Key, Unique, Card), and EntityFlags/RelationFlags
 ├── models.py             # Base Entity and Relation classes using attribute ownership model
 ├── query.py              # TypeQL query builder
 ├── session.py            # Database connection and transaction management
@@ -71,8 +71,11 @@ examples/
 └── literal_types.py      # Literal type support examples
 
 tests/
-└── test_basic.py         # Comprehensive tests for attribute API, entities, relations,
-                          # Flag system, and cardinality
+├── test_basic.py              # Comprehensive tests for attribute API, entities, relations,
+│                              # Flag system, and cardinality
+├── test_cardinal_api.py       # Tests for Card API with Flag system
+├── test_literal_support.py    # Tests for Literal type support
+└── test_pydantic_integration.py # Tests for Pydantic integration features
 ```
 
 ## TypeDB ORM Design Considerations
@@ -108,15 +111,17 @@ TypeBridge follows TypeDB's type system closely:
        # NOT: __type_name__ = "person"  # Deprecated
    ```
 
-3. **Use Flag system for Key/Unique, generic types for cardinality**:
+3. **Use Flag system for Key/Unique/Card annotations**:
    ```python
    from typing import Optional
-   from type_bridge import Flag, Key, Min, Max, Range
+   from type_bridge import Flag, Key, Unique, Card
 
-   name: Name = Flag(Key)   # @key @card(1,1)
-   age: Optional[Age]       # @card(0,1)
-   tags: Min[2, Tag]        # @card(2,∞)
-   jobs: Range[1, 5, Job]   # @card(1,5)
+   name: Name = Flag(Key)                    # @key (implies @card(1..1))
+   email: Email = Flag(Unique)               # @unique (default @card(1..1))
+   age: Optional[Age]                        # @card(0..1)
+   tags: list[Tag] = Flag(Card(min=2))       # @card(2..)
+   jobs: list[Job] = Flag(Card(1, 5))        # @card(1..5)
+   languages: list[Lang] = Flag(Card(max=3)) # @card(0..3) (min defaults to 0)
    ```
 
 4. **Python inheritance maps to TypeDB supertypes**:
@@ -128,12 +133,60 @@ TypeBridge follows TypeDB's type system closely:
        pass
    ```
 
-5. **Cardinality semantics using generic types**:
-   - `Type` → exactly one (1..1) - default
-   - `Optional[Type]` → zero or one (0..1)
-   - `Min[N, Type]` → N or more (N..∞)
-   - `Max[N, Type]` → zero to N (0..N)
-   - `Range[Min, Max, Type]` → Min to Max
+5. **Cardinality semantics**:
+   - `Type` → exactly one @card(1..1) - default
+   - `Optional[Type]` → zero or one @card(0..1)
+   - `list[Type] = Flag(Card(min=N))` → N or more @card(N..)
+   - `list[Type] = Flag(Card(max=N))` → zero to N @card(0..N)
+   - `list[Type] = Flag(Card(min, max))` → min to max @card(min..max)
+
+## TypeQL Syntax Requirements
+
+When generating TypeQL schema definitions, always use the following correct syntax:
+
+1. **Attribute definitions**:
+   ```typeql
+   attribute name, value string;
+   ```
+   ❌ NOT: `name sub attribute, value string;`
+
+2. **Entity definitions**:
+   ```typeql
+   entity person,
+       owns name @key,
+       owns age @card(0..1);
+   ```
+   ❌ NOT: `person sub entity,`
+
+3. **Relation definitions**:
+   ```typeql
+   relation employment,
+       relates employee,
+       relates employer,
+       owns salary @card(0..1);
+   ```
+   ❌ NOT: `employment sub relation,`
+
+4. **Cardinality annotations**:
+   - Use `..` (double dot) syntax: `@card(1..5)` ✓
+   - ❌ NOT comma syntax: `@card(1,5)`
+   - Unbounded max: `@card(2..)` ✓
+
+5. **Key and Unique annotations**:
+   - `@key` implies `@card(1..1)`, never output both
+   - `@unique` with default `@card(1..1)`, omit `@card` annotation
+   - Only output explicit `@card` when it differs from the implied cardinality
+
+## Deprecated APIs
+
+The following APIs are deprecated and should NOT be used:
+
+- ❌ `Cardinal` - Use `Flag(Card(...))` instead
+- ❌ `Min[N, Type]` - Use `list[Type] = Flag(Card(min=N))` instead
+- ❌ `Max[N, Type]` - Use `list[Type] = Flag(Card(max=N))` instead
+- ❌ `Range[Min, Max, Type]` - Use `list[Type] = Flag(Card(min, max))` instead
+
+These were removed to provide a cleaner, more consistent API using the Flag system.
 
 ## Type Checking and Static Analysis
 

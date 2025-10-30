@@ -1,18 +1,19 @@
 """Basic tests for the new Attribute-based API."""
 
-from typing import ClassVar
+from typing import ClassVar, Literal, Optional
 
 from type_bridge import (
+    Card,
     Entity,
     EntityFlags,
     Flag,
     Key,
     Long,
-    Min,
     Relation,
     RelationFlags,
     Role,
     String,
+    Unique,
 )
 
 
@@ -32,7 +33,7 @@ def test_attribute_creation():
 
 
 def test_flag_annotation():
-    """Test Flag annotation system for Key and Unique."""
+    """Test Flag annotation system for Key, Unique, and Card."""
 
     class Email(String):
         pass
@@ -40,23 +41,139 @@ def test_flag_annotation():
     # Test Key flag
     key_flag = Flag(Key)
     assert key_flag.is_key is True
-    assert key_flag.to_typeql_annotations() == ["@key"]
+    assert key_flag.to_typeql_annotations() == ["@key"]  # @key implies @card(1,1), no need to output it
 
     # Test Unique flag
-    from type_bridge import Unique
     unique_flag = Flag(Unique)
     assert unique_flag.is_unique is True
-    assert unique_flag.to_typeql_annotations() == ["@unique"]
+    assert unique_flag.to_typeql_annotations() == ["@unique"]  # @unique with default @card(1,1) omits @card
 
     # Test combined Key + Unique flags
     combined_flag = Flag(Key, Unique)
     assert combined_flag.is_key is True
     assert combined_flag.is_unique is True
-    assert combined_flag.to_typeql_annotations() == ["@key", "@unique"]
+    assert combined_flag.to_typeql_annotations() == ["@key", "@unique"]  # @key implies @card(1,1)
+
+    # Test Card flag
+    card_min_only = Flag(Card(min=2))
+    assert card_min_only.card_min == 2
+    assert card_min_only.card_max is None
+    assert card_min_only.to_typeql_annotations() == ["@card(2..)"]  # Unbounded max
+
+    card_min_max = Flag(Card(1, 5))
+    assert card_min_max.card_min == 1
+    assert card_min_max.card_max == 5
+    assert card_min_max.to_typeql_annotations() == ["@card(1..5)"]  # Range syntax
+
+    # Test Key + Card combination
+    # Note: In TypeDB, @key always implies @card(1,1), so explicit Card with Key is redundant
+    # The @card annotation is never output when @key is present
+    key_card = Flag(Key, Card(min=1))
+    assert key_card.is_key is True
+    assert key_card.card_min == 1
+    assert key_card.card_max is None
+    assert key_card.to_typeql_annotations() == ["@key"]  # @key always implies exactly one, @card is omitted
+
+
+def test_card_with_list_types():
+    """Test Card API with list type annotations."""
+
+    class Name(String):
+        pass
+
+    class Tag(String):
+        pass
+
+    class Job(String):
+        pass
+
+    class Person(Entity):
+        flags = EntityFlags(type_name="person")
+        name: Name = Flag(Key)  # @key @card(1,1)
+        tags: list[Tag] = Flag(Card(min=2))  # @card(2,∞)
+        jobs: list[Job] = Flag(Card(1, 5))  # @card(1,5)
+
+    owned = Person.get_owned_attributes()
+
+    # Check that list types with Card work correctly
+    assert owned["tags"]["flags"].card_min == 2
+    assert owned["tags"]["flags"].card_max is None
+    assert owned["tags"]["flags"].has_explicit_card is True
+
+    assert owned["jobs"]["flags"].card_min == 1
+    assert owned["jobs"]["flags"].card_max == 5
+    assert owned["jobs"]["flags"].has_explicit_card is True
+
+    # Check schema generation
+    schema = Person.to_schema_definition()
+    assert "@card(2..)" in schema  # Unbounded max
+    assert "@card(1..5)" in schema  # Range syntax
+
+
+def test_card_validation_rejects_non_list():
+    """Test that Card with non-list types raises TypeError."""
+    import pytest
+
+    class Age(Long):
+        pass
+
+    class Phone(String):
+        pass
+
+    # Should raise TypeError when Card is used on non-list type
+    with pytest.raises(TypeError, match="Flag\\(Card\\(...\\)\\) can only be used with list\\[Type\\]"):
+        class InvalidPerson(Entity):
+            flags = EntityFlags(type_name="invalid_person")
+            age: Age = Flag(Card(min=0, max=1))  # Should fail!
+
+    # Should also reject Card on union types with None
+    with pytest.raises(TypeError, match="Flag\\(Card\\(...\\)\\) can only be used with list\\[Type\\]"):
+        class InvalidPerson2(Entity):
+            flags = EntityFlags(type_name="invalid_person2")
+            phone: Phone | None = Flag(Card(min=0, max=1))  # Should fail! Use Optional instead
+
+    # Verify that Phone | None works WITHOUT Card
+    class ValidPerson(Entity):
+        flags = EntityFlags(type_name="valid_person")
+        phone: Phone | None  # This is fine - treated as @card(0,1)
+
+    owned = ValidPerson.get_owned_attributes()
+    assert owned["phone"]["flags"].card_min == 0
+    assert owned["phone"]["flags"].card_max == 1
+    assert owned["phone"]["flags"].has_explicit_card is False
+
+
+def test_list_requires_card():
+    """Test that list[Type] annotations must have Flag(Card(...))."""
+    import pytest
+
+    class Tag(String):
+        pass
+
+    # Should raise TypeError when list[Type] is used without Flag(Card(...))
+    with pytest.raises(TypeError, match="list\\[Type\\] annotations must use Flag\\(Card\\(...\\)\\)"):
+        class InvalidPerson(Entity):
+            flags = EntityFlags(type_name="invalid_person")
+            tags: list[Tag]  # Should fail! Must use Flag(Card(...))
+
+    # Should also fail without any default value
+    with pytest.raises(TypeError, match="list\\[Type\\] annotations must use Flag\\(Card\\(...\\)\\)"):
+        class InvalidPerson2(Entity):
+            flags = EntityFlags(type_name="invalid_person2")
+            tags: list[Tag] = Flag(Key)  # Should fail! Key doesn't provide Card
+
+    # Verify that list[Type] with Flag(Card(...)) works
+    class ValidPerson(Entity):
+        flags = EntityFlags(type_name="valid_person")
+        tags: list[Tag] = Flag(Card(min=1))  # This is correct
+
+    owned = ValidPerson.get_owned_attributes()
+    assert owned["tags"]["flags"].card_min == 1
+    assert owned["tags"]["flags"].has_explicit_card is True
 
 
 def test_entity_creation():
-    """Test creating entities with owned attributes using generic types."""
+    """Test creating entities with owned attributes using Optional and Card."""
 
     class Name(String):
         pass
@@ -72,10 +189,10 @@ def test_entity_creation():
 
     class Person(Entity):
         flags = EntityFlags(type_name="person")
-        name: Name = Flag(Key)  # @key
-        age: Age | None  # @card(0,1) - using Optional
+        name: Name = Flag(Key)  # @key @card(1,1)
+        age: Optional[Age]  # @card(0,1) - using Optional
         email: Email | None  # @card(0,1) - using union syntax
-        tags: Min[2, Tag]  # @card(2)
+        tags: list[Tag] = Flag(Card(min=2))  # @card(2,∞)
 
     # Check owned attributes
     owned = Person.get_owned_attributes()
@@ -141,10 +258,10 @@ def test_entity_schema_generation():
         email: Email | None  # @card(0,1) - Union syntax
 
     schema = Person.to_schema_definition()
-    assert "person sub entity" in schema
-    assert "owns name @key @card(1,1)" in schema
-    assert "owns age @card(0,1)" in schema
-    assert "owns email @card(0,1)" in schema
+    assert "entity person" in schema
+    assert "owns name @key" in schema  # @key implies @card(1,1), so @card is omitted
+    assert "owns age @card(0..1)" in schema  # Range syntax with ..
+    assert "owns email @card(0..1)" in schema  # Range syntax with ..
 
 
 def test_entity_insert_query():
@@ -237,7 +354,7 @@ def test_relation_schema_generation():
         friend2: ClassVar[Role] = Role("friend", Person)
 
     schema = Friendship.to_schema_definition()
-    assert "friendship sub relation" in schema
+    assert "relation friendship" in schema
     assert "relates friend" in schema
 
 
@@ -253,7 +370,7 @@ def test_attribute_schema_generation():
     name_schema = Name.to_schema_definition()
     age_schema = Age.to_schema_definition()
 
-    assert "name sub attribute, value string;" in name_schema
-    assert "age sub attribute, value long;" in age_schema
+    assert "attribute name, value string;" in name_schema
+    assert "attribute age, value long;" in age_schema
 
 

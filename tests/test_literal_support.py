@@ -94,7 +94,7 @@ def test_literal_schema_generation():
 
     # Schema generation should still work
     schema = Task.to_schema_definition()
-    assert "task sub entity" in schema
+    assert "entity task" in schema
     assert "owns status" in schema
 
 

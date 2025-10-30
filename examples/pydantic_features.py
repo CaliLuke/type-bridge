@@ -39,7 +39,7 @@ class Person(Entity):
     flags = EntityFlags(type_name="person")
     name: Name = Flag(Key)  # Required key field
     email: Optional[Email] = None  # Optional with default
-    age: Age = 0  # Default value (still required unless explicitly Optional)
+    age: Age = Age(0)  # Default value (still required unless explicitly Optional)
 
 
 class Company(Entity):
@@ -67,21 +67,21 @@ def demonstrate_validation():
     print("=" * 80)
 
     # Valid creation
-    alice = Person(name="Alice Johnson", email="alice@example.com", age=30)
+    alice = Person(name=Name("Alice Johnson"), email=Email("alice@example.com"), age=Age(30))
     print(f"Created: {alice}")
 
     # Type coercion (string to int)
-    bob = Person(name="Bob Smith", age="25")
+    bob = Person(name=Name("Bob Smith"), age=Age(25))
     print(f"Created with coercion: {bob}")
     print(f"  age type: {type(bob.age)}")
 
     # Default values
-    charlie = Person(name="Charlie Brown")
+    charlie = Person(name=Name("Charlie Brown"))
     print(f"Created with defaults: {charlie}")
     print(f"  age default: {charlie.age}")
 
     # Validation on assignment
-    alice.age = 31
+    alice.age = Age(31)
     print(f"Updated age: {alice.age}")
 
     print()
@@ -93,7 +93,7 @@ def demonstrate_serialization():
     print("Pydantic Serialization")
     print("=" * 80)
 
-    alice = Person(name="Alice Johnson", email="alice@example.com", age=30)
+    alice = Person(name=Name("Alice Johnson"), email=Email("alice@example.com"), age=Age(30))
 
     # Serialize to dict
     alice_dict = alice.model_dump()
@@ -131,11 +131,11 @@ def demonstrate_model_copy():
     print("Pydantic Model Copy")
     print("=" * 80)
 
-    alice = Person(name="Alice Johnson", email="alice@example.com", age=30)
+    alice = Person(name=Name("Alice Johnson"), email=Email("alice@example.com"), age=Age(30))
     print(f"Original: {alice}")
 
     # Create a copy with updates
-    alice_older = alice.model_copy(update={"age": 31})
+    alice_older = alice.model_copy(update={"age": Age(31)})
     print(f"Copy with update: {alice_older}")
     print(f"Original unchanged: age={alice.age}")
 
@@ -153,8 +153,8 @@ def demonstrate_typedb_operations():
     print("=" * 80)
 
     # Create entities
-    alice = Person(name="Alice Johnson", email="alice@example.com", age=30)
-    techcorp = Company(name="TechCorp")
+    alice = Person(name=Name("Alice Johnson"), email=Email("alice@example.com"), age=Age(30))
+    techcorp = Company(name=Name("TechCorp"))
 
     # Generate TypeDB insert queries
     print("Insert queries:")
@@ -183,7 +183,7 @@ def demonstrate_combined_features():
     print(f"1. Created from JSON: {alice}")
 
     # 2. Validate and modify (Pydantic)
-    alice.age = 31
+    alice.age = Age(31)
     print(f"2. Updated age: {alice.age}")
 
     # 3. Generate TypeDB insert query (TypeDB)

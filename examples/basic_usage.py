@@ -1,20 +1,16 @@
-"""Example demonstrating the new Attribute-based API."""
+"""Example demonstrating the new Attribute-based API with Card cardinality."""
 
 from typing import ClassVar, Optional
 
-from pydantic import EmailStr
-
 from type_bridge import (
     Boolean,
+    Card,
     Double,
     Entity,
     EntityFlags,
     Flag,
     Key,
     Long,
-    Max,
-    Min,
-    Range,
     Relation,
     RelationFlags,
     Role,
@@ -25,41 +21,49 @@ from type_bridge import (
 # Step 1: Define attribute types (these are base attributes that can be owned)
 class Name(String):
     """Name attribute - a string."""
+
     pass
 
 
 class Email(String):
     """Email attribute - a string."""
+
     pass
 
 
 class Age(Long):
     """Age attribute - a long integer."""
+
     pass
 
 
 class Salary(Long):
     """Salary attribute - a long integer."""
+
     pass
 
 
 class Position(String):
     """Position/title attribute - a string."""
+
     pass
 
 
 class Industry(String):
     """Industry attribute - a string."""
+
     pass
 
 
 class Score(Double):
     """Score attribute - a double."""
+
     pass
 
 
 class IsActive(Boolean):
     """Active status attribute - a boolean."""
+
     pass
 
 
@@ -69,10 +73,10 @@ class Person(Entity):
 
     flags = EntityFlags(type_name="person")
 
-    name: Name = Flag(Key)  # @key @card(1,1) - exactly one, marked as key
-    age: Optional[Age]  # @card(0,1) - zero or one (optional)
-    email: Email  # @card(1,1) - exactly one (default)
-    score: Score  # @card(1,1) - exactly one (default)
+    name: Name = Flag(Key)  # @key (implies @card(1..1)) - exactly one, marked as key
+    age: Optional[Age]  # @card(0..1) - zero or one (optional)
+    email: Email  # @card(1..1) - exactly one (default)
+    score: Score  # @card(1..1) - exactly one (default)
 
 
 class Company(Entity):
@@ -80,8 +84,8 @@ class Company(Entity):
 
     flags = EntityFlags(type_name="company")
 
-    name: Name = Flag(Key)  # @key @card(1,1) - exactly one, marked as key
-    industry: Range[1, 5, Industry]  # @card(1,5) - one to five industries
+    name: Name = Flag(Key)  # @key (implies @card(1..1)) - exactly one, marked as key
+    industry: list[Industry] = Flag(Card(1, 5))  # @card(1..5) - one to five industries
 
 
 # Step 3: Define relations that OWN attributes
@@ -95,8 +99,8 @@ class Employment(Relation):
     employer: ClassVar[Role] = Role("employer", Company)
 
     # Owned attributes with cardinality
-    position: Position  # @card(1,1) - exactly one (default)
-    salary: Optional[Salary]  # @card(0,1) - zero or one (optional)
+    position: Position  # @card(1..1) - exactly one (default)
+    salary: Optional[Salary]  # @card(0..1) - zero or one (optional)
 
 
 def demonstrate_schema_generation():
@@ -137,27 +141,27 @@ def demonstrate_instance_creation():
     print("Creating Entity Instances")
     print("=" * 80)
 
-    # Create person instances
-    alice = Person(
-        name= "Alice Johnson",
-        age=30,
-        email="alice@example.com",
-        score=95.5
-    )
-    print(f"Created: {alice}")
+    # Two ways to create person instances:
 
-    bob = Person(
-        name="Bob Smith",
-        age=28,
-        email="bob@example.com",
-        score=87.3
+    # Style 1: Attribute instances (fully type-safe, zero pyright errors)
+    alice = Person(
+        name=Name("Alice Johnson"), age=Age(30), email=Email("alice@example.com"), score=Score(95.5)
     )
-    print(f"Created: {bob}")
+    print(f"Created (attribute instances): {alice}")
+
+    # Style 2: Raw values (convenient, Pydantic handles conversion)
+    # Note: Works perfectly at runtime, may show pyright warnings
+    bob = Person(name="Bob Smith", age=28, email="bob@example.com", score=87.3) # pyright: ignore [reportArgumentType]
+    print(f"Created (raw values): {bob}")
 
     # Create company instance
     techcorp = Company(
-        name="TechCorp",
-        industry=["Technology", "Software", "AI"]  # List for Range[1,5]
+        name=Name("TechCorp"),
+        industry=[
+            Industry("Technology"),
+            Industry("Software"),
+            Industry("AI"),
+        ],  # List for Range[1,5]
     )
     print(f"Created: {techcorp}")
 
@@ -188,8 +192,8 @@ def demonstrate_attribute_introspection():
 
     print("Person owns:")
     for field_name, attr_info in Person.get_owned_attributes().items():
-        attr_class = attr_info['type']
-        flags = attr_info['flags']
+        attr_class = attr_info["type"]
+        flags = attr_info["flags"]
         attr_name = attr_class.get_attribute_name()
         value_type = attr_class.get_value_type()
         annotations = " ".join(flags.to_typeql_annotations())
@@ -200,8 +204,8 @@ def demonstrate_attribute_introspection():
 
     print("Company owns:")
     for field_name, attr_info in Company.get_owned_attributes().items():
-        attr_class = attr_info['type']
-        flags = attr_info['flags']
+        attr_class = attr_info["type"]
+        flags = attr_info["flags"]
         attr_name = attr_class.get_attribute_name()
         value_type = attr_class.get_value_type()
         annotations = " ".join(flags.to_typeql_annotations())
@@ -212,8 +216,8 @@ def demonstrate_attribute_introspection():
 
     print("Employment owns:")
     for field_name, attr_info in Employment.get_owned_attributes().items():
-        attr_class = attr_info['type']
-        flags = attr_info['flags']
+        attr_class = attr_info["type"]
+        flags = attr_info["flags"]
         attr_name = attr_class.get_attribute_name()
         value_type = attr_class.get_value_type()
         annotations = " ".join(flags.to_typeql_annotations())

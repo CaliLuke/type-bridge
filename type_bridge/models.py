@@ -7,6 +7,7 @@ from datetime import datetime as datetime_type
 from typing import (
     Any,
     ClassVar,
+    Literal,
     dataclass_transform,
     get_args,
     get_origin,
@@ -51,12 +52,10 @@ def extract_metadata(field_type: type) -> FieldInfo:
 
     Handles:
     - Optional[Name] → FieldInfo(Name, 0, 1, False, False)
-    - Min[10, Tag] → FieldInfo(Tag, 10, None, False, False)
-    - Max[10, Lang] → FieldInfo(Lang, 0, 10, False, False)
-    - Range[1, 4, Job] → FieldInfo(Job, 1, 4, False, False)
     - Key[Name] → FieldInfo(Name, 1, 1, True, False)
     - Unique[Email] → FieldInfo(Email, 1, 1, False, True)
     - Name → FieldInfo(Name, 1, 1, False, False)
+    - list[Tag] → FieldInfo(Tag, None, None, False, False) - cardinality set by Flag(Card(...))
 
     Args:
         field_type: The type annotation from __annotations__
@@ -70,13 +69,14 @@ def extract_metadata(field_type: type) -> FieldInfo:
     # Default cardinality: exactly one (1,1)
     info = FieldInfo(card_min=1, card_max=1)
 
-    # Handle Optional[T] (Union[T, None])
+    # Handle Union types (Optional[T] or Literal[...] | T)
     from types import UnionType
     if origin is UnionType or str(origin) == 'typing.Union':
-        # Optional[T] is Union[T, None]
-        # Check if it's truly Optional (has None in args)
+        # Check if it's Optional (has None in args)
         has_none = type(None) in args or None in args
+
         if has_none:
+            # Optional[T] is Union[T, None]
             for arg in args:
                 if arg is not type(None) and arg is not None:
                     # Recursively extract from the non-None type
@@ -86,35 +86,53 @@ def extract_metadata(field_type: type) -> FieldInfo:
                         nested_info.card_min = 0
                         nested_info.card_max = 1
                         return nested_info
+        else:
+            # Not Optional - might be Literal[...] | AttributeType
+            # Look for an Attribute subclass in the union args
+            for arg in args:
+                try:
+                    if isinstance(arg, type) and issubclass(arg, Attribute):
+                        # Found the Attribute type - use it
+                        info.attr_type = arg
+                        info.card_min = 1
+                        info.card_max = 1
+                        return info
+                except TypeError:
+                    continue
 
-    # Handle generic type aliases (Min, Max, Range, Key, Unique from type statements)
+    # Handle list[Type] annotations
+    if origin is list and len(args) >= 1:
+        # Extract the attribute type from list[AttributeType]
+        list_item_type = args[0]
+        try:
+            if isinstance(list_item_type, type) and issubclass(list_item_type, Attribute):
+                # Found an Attribute type in the list
+                info.attr_type = list_item_type
+                # Don't set card_min/card_max here - let Flag(Card(...)) handle it
+                # or use default multi-value cardinality
+                return info
+        except TypeError:
+            pass
+
+    # Handle Key[T] and Unique[T] type aliases
     elif origin is not None:
         origin_name = str(origin)
 
-        # Check for Min/Max/Range/Key/Unique type aliases
-        if 'Min' in origin_name or 'Max' in origin_name or 'Range' in origin_name or 'Key' in origin_name or 'Unique' in origin_name:
-            # These are generic aliases: Min[N, T] gives args (N, T)
-            if 'Min' in origin_name and len(args) >= 2:
-                info.card_min = args[0] if isinstance(args[0], int) else 1
-                info.card_max = None
-                info.attr_type = args[1]
-            elif 'Max' in origin_name and len(args) >= 2:
-                info.card_min = 0
-                info.card_max = args[0] if isinstance(args[0], int) else None
-                info.attr_type = args[1]
-            elif 'Range' in origin_name and len(args) >= 3:
-                info.card_min = args[0] if isinstance(args[0], int) else 1
-                info.card_max = args[1] if isinstance(args[1], int) else None
-                info.attr_type = args[2]
-            elif 'Key' in origin_name and len(args) >= 1:
-                info.is_key = True
-                info.card_min, info.card_max = 1, 1
-                info.attr_type = args[0]
-            elif 'Unique' in origin_name and len(args) >= 1:
-                info.is_unique = True
-                info.card_min, info.card_max = 1, 1
-                info.attr_type = args[0]
-
+        # Check for Key/Unique type aliases
+        if 'Key' in origin_name and len(args) >= 1:
+            info.is_key = True
+            info.card_min, info.card_max = 1, 1
+            info.attr_type = args[0]
+            # Check if attr_type is an Attribute subclass
+            try:
+                if isinstance(info.attr_type, type) and issubclass(info.attr_type, Attribute):
+                    return info
+            except TypeError:
+                pass
+        elif 'Unique' in origin_name and len(args) >= 1:
+            info.is_unique = True
+            info.card_min, info.card_max = 1, 1
+            info.attr_type = args[0]
             # Check if attr_type is an Attribute subclass
             try:
                 if isinstance(info.attr_type, type) and issubclass(info.attr_type, Attribute):
@@ -256,11 +274,40 @@ class Entity(BaseModel):
             field_info = extract_metadata(field_type)
             base_type = _get_base_type_for_attribute(field_info.attr_type) if field_info.attr_type else None
 
+            # Check if field type is a list annotation
+            field_origin = get_origin(field_type)
+            is_list_type = field_origin is list
+
             # If we found an Attribute type, add it to owned attributes
             if field_info.attr_type is not None:
+                # Validate: list[Type] must have Flag(Card(...))
+                if is_list_type and not isinstance(default_value, AttributeFlags):
+                    raise TypeError(
+                        f"Field '{field_name}' in {cls.__name__}: "
+                        f"list[Type] annotations must use Flag(Card(...)) to specify cardinality. "
+                        f"Example: {field_name}: list[{field_info.attr_type.__name__}] = Flag(Card(min=1))"
+                    )
+
                 # Get flags from default value or create new flags
                 if isinstance(default_value, AttributeFlags):
                     flags = default_value
+
+                    # Validate: Flag(Card(...)) should only be used with list[Type]
+                    if flags.has_explicit_card and not is_list_type:
+                        raise TypeError(
+                            f"Field '{field_name}' in {cls.__name__}: "
+                            f"Flag(Card(...)) can only be used with list[Type] annotations. "
+                            f"For optional single values, use Optional[{field_info.attr_type.__name__}] instead."
+                        )
+
+                    # Validate: list[Type] must have Flag(Card(...))
+                    if is_list_type and not flags.has_explicit_card:
+                        raise TypeError(
+                            f"Field '{field_name}' in {cls.__name__}: "
+                            f"list[Type] annotations must use Flag(Card(...)) to specify cardinality. "
+                            f"Example: {field_name}: list[{field_info.attr_type.__name__}] = Flag(Card(min=1))"
+                        )
+
                     # Merge with cardinality from type annotation if not already set
                     if flags.card_min is None and flags.card_max is None:
                         flags.card_min = field_info.card_min
@@ -303,22 +350,22 @@ class Entity(BaseModel):
                         if has_none:
                             # Already Optional
                             if is_multi:
-                                # Optional list: list[int] | None
-                                new_annotations[field_name] = Union[list[base_type], type(None)]  # noqa: UP007
+                                # Optional list: list[int | Attribute] | None
+                                new_annotations[field_name] = Union[list[Union[base_type, field_info.attr_type]], type(None)]  # noqa: UP007
                             else:
                                 # Optional single: int | Age | None
                                 new_annotations[field_name] = Union[base_type, field_info.attr_type, type(None)]  # noqa: UP007
                         else:
                             # Union but not Optional
                             if is_multi:
-                                new_annotations[field_name] = list[base_type]
+                                new_annotations[field_name] = list[Union[base_type, field_info.attr_type]]  # noqa: UP007
                             else:
                                 new_annotations[field_name] = Union[base_type, field_info.attr_type]  # noqa: UP007
                     else:
                         # Not a union
                         if is_multi:
-                            # Multiple values: list[str]
-                            new_annotations[field_name] = list[base_type]
+                            # Multiple values: list[str | Attribute] (accept both raw values and attribute instances)
+                            new_annotations[field_name] = list[Union[base_type, field_info.attr_type]]  # noqa: UP007
                         else:
                             # Single value: str | Name
                             new_annotations[field_name] = Union[base_type, field_info.attr_type]  # noqa: UP007
@@ -375,9 +422,9 @@ class Entity(BaseModel):
         # Define entity type with supertype from Python inheritance
         supertype = cls.get_supertype()
         if supertype:
-            entity_def = f"{type_name} sub {supertype}"
+            entity_def = f"entity {type_name} sub {supertype}"
         else:
-            entity_def = f"{type_name} sub entity"
+            entity_def = f"entity {type_name}"
 
         if cls.is_abstract():
             entity_def += ", abstract"
@@ -396,8 +443,8 @@ class Entity(BaseModel):
                 ownership += " " + " ".join(annotations)
             lines.append(ownership)
 
-        lines.append(";")
-        return ",\n".join(lines)
+        # Join with commas, but end with semicolon (no comma before semicolon)
+        return ",\n".join(lines) + ";"
 
     def to_insert_query(self, var: str = "$e") -> str:
         """Generate TypeQL insert query for this instance.
@@ -417,13 +464,23 @@ class Entity(BaseModel):
             if value is not None:
                 attr_class = attr_info['type']
                 attr_name = attr_class.get_attribute_name()
-                parts.append(f"has {attr_name} {self._format_value(value)}")
+
+                # Handle lists (multi-value attributes)
+                if isinstance(value, list):
+                    for item in value:
+                        parts.append(f"has {attr_name} {self._format_value(item)}")
+                else:
+                    parts.append(f"has {attr_name} {self._format_value(value)}")
 
         return ", ".join(parts)
 
     @staticmethod
     def _format_value(value: Any) -> str:
         """Format a Python value for TypeQL."""
+        # Extract value from Attribute instances
+        if isinstance(value, Attribute):
+            value = value.value
+
         if isinstance(value, str):
             return f'"{value}"'
         elif isinstance(value, bool):
@@ -582,11 +639,40 @@ class Relation(BaseModel):
             field_info = extract_metadata(field_type)
             base_type = _get_base_type_for_attribute(field_info.attr_type) if field_info.attr_type else None
 
+            # Check if field type is a list annotation
+            field_origin = get_origin(field_type)
+            is_list_type = field_origin is list
+
             # If we found an Attribute type, add it to owned attributes
             if field_info.attr_type is not None:
+                # Validate: list[Type] must have Flag(Card(...))
+                if is_list_type and not isinstance(default_value, AttributeFlags):
+                    raise TypeError(
+                        f"Field '{field_name}' in {cls.__name__}: "
+                        f"list[Type] annotations must use Flag(Card(...)) to specify cardinality. "
+                        f"Example: {field_name}: list[{field_info.attr_type.__name__}] = Flag(Card(min=1))"
+                    )
+
                 # Get flags from default value or create new flags
                 if isinstance(default_value, AttributeFlags):
                     flags = default_value
+
+                    # Validate: Flag(Card(...)) should only be used with list[Type]
+                    if flags.has_explicit_card and not is_list_type:
+                        raise TypeError(
+                            f"Field '{field_name}' in {cls.__name__}: "
+                            f"Flag(Card(...)) can only be used with list[Type] annotations. "
+                            f"For optional single values, use Optional[{field_info.attr_type.__name__}] instead."
+                        )
+
+                    # Validate: list[Type] must have Flag(Card(...))
+                    if is_list_type and not flags.has_explicit_card:
+                        raise TypeError(
+                            f"Field '{field_name}' in {cls.__name__}: "
+                            f"list[Type] annotations must use Flag(Card(...)) to specify cardinality. "
+                            f"Example: {field_name}: list[{field_info.attr_type.__name__}] = Flag(Card(min=1))"
+                        )
+
                     # Merge with cardinality from type annotation if not already set
                     if flags.card_min is None and flags.card_max is None:
                         flags.card_min = field_info.card_min
@@ -629,22 +715,22 @@ class Relation(BaseModel):
                         if has_none:
                             # Already Optional
                             if is_multi:
-                                # Optional list: list[int] | None
-                                new_annotations[field_name] = Union[list[base_type], type(None)]  # noqa: UP007
+                                # Optional list: list[int | Attribute] | None
+                                new_annotations[field_name] = Union[list[Union[base_type, field_info.attr_type]], type(None)]  # noqa: UP007
                             else:
                                 # Optional single: int | Year | None
                                 new_annotations[field_name] = Union[base_type, field_info.attr_type, type(None)]  # noqa: UP007
                         else:
                             # Union but not Optional
                             if is_multi:
-                                new_annotations[field_name] = list[base_type]
+                                new_annotations[field_name] = list[Union[base_type, field_info.attr_type]]  # noqa: UP007
                             else:
                                 new_annotations[field_name] = Union[base_type, field_info.attr_type]  # noqa: UP007
                     else:
                         # Not a union
                         if is_multi:
-                            # Multiple values: list[str]
-                            new_annotations[field_name] = list[base_type]
+                            # Multiple values: list[str | Attribute] (accept both raw values and attribute instances)
+                            new_annotations[field_name] = list[Union[base_type, field_info.attr_type]]  # noqa: UP007
                         else:
                             # Single value: str | Position
                             new_annotations[field_name] = Union[base_type, field_info.attr_type]  # noqa: UP007
@@ -701,9 +787,9 @@ class Relation(BaseModel):
         # Define relation type with supertype from Python inheritance
         supertype = cls.get_supertype()
         if supertype:
-            relation_def = f"{type_name} sub {supertype}"
+            relation_def = f"relation {type_name} sub {supertype}"
         else:
-            relation_def = f"{type_name} sub relation"
+            relation_def = f"relation {type_name}"
 
         if cls.is_abstract():
             relation_def += ", abstract"
@@ -726,8 +812,8 @@ class Relation(BaseModel):
                 ownership += " " + " ".join(annotations)
             lines.append(ownership)
 
-        lines.append(";")
-        return ",\n".join(lines)
+        # Join with commas, but end with semicolon (no comma before semicolon)
+        return ",\n".join(lines) + ";"
 
     def __repr__(self) -> str:
         """String representation of relation."""
