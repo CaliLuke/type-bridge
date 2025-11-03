@@ -470,7 +470,7 @@ class Entity(BaseModel):
             person = Person(name=Name("Alice"), age=Age(30))
             person.insert(db)
         """
-        query = self.to_insert_query()
+        query = f"insert {self.to_insert_query()};"
         with db.transaction("write") as tx:
             tx.execute(query)
             tx.commit()
@@ -558,13 +558,47 @@ class Entity(BaseModel):
             return f'"{str(value)}"'
 
     def __repr__(self) -> str:
-        """String representation of entity."""
+        """Developer-friendly string representation of entity."""
         field_strs = []
         for field_name in self._owned_attrs:
             value = getattr(self, field_name, None)
             if value is not None:
                 field_strs.append(f"{field_name}={value!r}")
         return f"{self.__class__.__name__}({', '.join(field_strs)})"
+
+    def __str__(self) -> str:
+        """User-friendly string representation of entity."""
+        # Extract key attributes first
+        key_parts = []
+        other_parts = []
+
+        for field_name, attr_info in self._owned_attrs.items():
+            value = getattr(self, field_name, None)
+            if value is None:
+                continue
+
+            # Extract actual value from Attribute instance
+            if hasattr(value, 'value'):
+                display_value = value.value
+            else:
+                display_value = value
+
+            # Format the field
+            field_str = f"{field_name}={display_value}"
+
+            # Separate key attributes
+            if attr_info.flags.is_key:
+                key_parts.append(field_str)
+            else:
+                other_parts.append(field_str)
+
+        # Show key attributes first, then others
+        all_parts = key_parts + other_parts
+
+        if all_parts:
+            return f"{self.get_type_name()}({', '.join(all_parts)})"
+        else:
+            return f"{self.get_type_name()}()"
 
 
 class Role[T: Entity]:
@@ -995,7 +1029,7 @@ class Relation(BaseModel):
         return ",\n".join(lines) + ";"
 
     def __repr__(self) -> str:
-        """String representation of relation."""
+        """Developer-friendly string representation of relation."""
         parts = []
         # Show role players
         for role_name in self._roles:
@@ -1008,3 +1042,54 @@ class Relation(BaseModel):
             if value is not None:
                 parts.append(f"{field_name}={value!r}")
         return f"{self.__class__.__name__}({', '.join(parts)})"
+
+    def __str__(self) -> str:
+        """User-friendly string representation of relation."""
+        parts = []
+
+        # Show role players first (more important)
+        role_parts = []
+        for role_name, role in self._roles.items():
+            player = getattr(self, role_name, None)
+            # Only show role players that are actual entity instances (have _owned_attrs)
+            if player is not None and hasattr(player, '_owned_attrs'):
+                # Get a simple representation of the player (their key attribute)
+                player_str = None
+                for field_name, attr_info in player._owned_attrs.items():
+                    if attr_info.flags.is_key:
+                        key_value = getattr(player, field_name, None)
+                        if key_value is not None:
+                            if hasattr(key_value, 'value'):
+                                player_str = str(key_value.value)
+                            else:
+                                player_str = str(key_value)
+                            break
+
+                if player_str:
+                    role_parts.append(f"{role_name}={player_str}")
+
+        if role_parts:
+            parts.append("(" + ", ".join(role_parts) + ")")
+
+        # Show attributes
+        attr_parts = []
+        for field_name, attr_info in self._owned_attrs.items():
+            value = getattr(self, field_name, None)
+            if value is None:
+                continue
+
+            # Extract actual value from Attribute instance
+            if hasattr(value, 'value'):
+                display_value = value.value
+            else:
+                display_value = value
+
+            attr_parts.append(f"{field_name}={display_value}")
+
+        if attr_parts:
+            parts.append("[" + ", ".join(attr_parts) + "]")
+
+        if parts:
+            return f"{self.get_type_name()}{' '.join(parts)}"
+        else:
+            return f"{self.get_type_name()}()"

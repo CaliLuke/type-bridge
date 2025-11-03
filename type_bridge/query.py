@@ -11,7 +11,7 @@ class Query:
     def __init__(self):
         """Initialize query builder."""
         self._match_clauses: list[str] = []
-        self._fetch_vars: list[str] = []
+        self._fetch_specs: dict[str, list[str]] = {}  # var -> [attributes]
         self._delete_clauses: list[str] = []
         self._insert_clauses: list[str] = []
         self._sort_clauses: list[tuple[str, str]] = []  # [(variable, direction)]
@@ -30,16 +30,23 @@ class Query:
         self._match_clauses.append(pattern)
         return self
 
-    def fetch(self, *variables: str) -> "Query":
-        """Add variables to fetch.
+    def fetch(self, variable: str, *attributes: str) -> "Query":
+        """Add variables and attributes to fetch.
+
+        In TypeQL 3.x, fetch uses the syntax:
+        fetch { $e.* }  (fetch all attributes)
 
         Args:
-            variables: Variable names to fetch
+            variable: Variable name to fetch (e.g., "$e")
+            attributes: Not used in TypeQL 3.x (kept for API compatibility)
 
         Returns:
             Self for chaining
+
+        Example:
+            query.fetch("$e")  # Fetches all attributes
         """
-        self._fetch_vars.extend(variables)
+        self._fetch_specs[variable] = list(attributes)
         return self
 
     def delete(self, pattern: str) -> "Query":
@@ -131,26 +138,25 @@ class Query:
             insert_body = "; ".join(self._insert_clauses)
             parts.append(f"insert\n{insert_body};")
 
-        # Fetch clause
-        if self._fetch_vars:
-            fetch_vars = ", ".join(self._fetch_vars)
-            parts.append(f"fetch\n{fetch_vars};")
-
-        # Sort, limit and offset modifiers
-        modifiers = []
+        # Sort, limit and offset modifiers (must come BEFORE fetch in TypeQL 3.x)
         if self._sort_clauses:
             for var, direction in self._sort_clauses:
-                modifiers.append(f"sort {var} {direction};")
+                parts.append(f"sort {var} {direction};")
         if self._limit is not None:
-            modifiers.append(f"limit {self._limit};")
+            parts.append(f"limit {self._limit};")
         if self._offset is not None:
-            modifiers.append(f"offset {self._offset};")
+            parts.append(f"offset {self._offset};")
 
-        query = "\n".join(parts)
-        if modifiers:
-            query += "\n" + "\n".join(modifiers)
+        # Fetch clause (TypeQL 3.x syntax: fetch { $var.* })
+        if self._fetch_specs:
+            fetch_items = []
+            for var in self._fetch_specs.keys():
+                fetch_items.append(f"  {var}.*")
+            # Use actual newline, not \n literal
+            fetch_body = ",\n".join(fetch_items)
+            parts.append(f"fetch {{\n{fetch_body}\n}};")
 
-        return query
+        return "\n".join(parts)
 
     def __str__(self) -> str:
         """String representation of query."""

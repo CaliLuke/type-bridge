@@ -45,6 +45,45 @@ class EntityManager[E: Entity]:
 
         return instance
 
+    def insert_many(self, entities: list[E]) -> list[E]:
+        """Insert multiple entities into the database in a single transaction.
+
+        More efficient than calling insert() multiple times.
+
+        Args:
+            entities: List of entity instances to insert
+
+        Returns:
+            List of inserted entity instances
+
+        Example:
+            persons = [
+                Person(name="Alice", email="alice@example.com"),
+                Person(name="Bob", email="bob@example.com"),
+                Person(name="Charlie", email="charlie@example.com"),
+            ]
+            Person.manager(db).insert_many(persons)
+        """
+        if not entities:
+            return []
+
+        # Build a single TypeQL query with multiple insert patterns
+        insert_patterns = []
+        for i, entity in enumerate(entities):
+            # Use unique variable names for each entity
+            var = f"$e{i}"
+            pattern = entity.to_insert_query(var)
+            insert_patterns.append(pattern)
+
+        # Combine all patterns into a single insert query
+        query = "insert\n" + ";\n".join(insert_patterns) + ";"
+
+        with self.db.transaction("write") as tx:
+            tx.execute(query)
+            tx.commit()
+
+        return entities
+
     def get(self, **filters) -> list[E]:
         """Get entities matching filters.
 
@@ -55,7 +94,7 @@ class EntityManager[E: Entity]:
             List of matching entities
         """
         query = QueryBuilder.match_entity(self.model_class, **filters)
-        query.fetch("$e")
+        query.fetch("$e")  # Fetch all attributes with $e.*
 
         with self.db.transaction("read") as tx:
             results = tx.execute(query.build())
@@ -133,6 +172,9 @@ class EntityManager[E: Entity]:
             attr_name = attr_class.get_attribute_name()
             if attr_name in result:
                 attrs[field_name] = result[attr_name]
+            else:
+                # For optional fields, explicitly set to None if not present
+                attrs[field_name] = None
         return attrs
 
     @staticmethod
@@ -202,7 +244,7 @@ class EntityQuery[E: Entity]:
             List of matching entities
         """
         query = QueryBuilder.match_entity(self.model_class, **self.filters)
-        query.fetch("$e")
+        query.fetch("$e")  # Fetch all attributes with $e.*
 
         if self._limit_value is not None:
             query.limit(self._limit_value)
@@ -214,15 +256,18 @@ class EntityQuery[E: Entity]:
 
         # Convert results to entity instances
         entities = []
+        owned_attrs = self.model_class.get_owned_attributes()
         for result in results:
             # Extract attributes from result
-            owned_attrs = self.model_class.get_owned_attributes()
             attrs = {}
             for field_name, attr_info in owned_attrs.items():
                 attr_class = attr_info.typ
                 attr_name = attr_class.get_attribute_name()
                 if attr_name in result:
                     attrs[field_name] = result[attr_name]
+                else:
+                    # For optional fields, explicitly set to None if not present
+                    attrs[field_name] = None
             entity = self.model_class(**attrs)
             entities.append(entity)
 
@@ -354,6 +399,144 @@ class RelationManager[R: Relation]:
 
         return self.model_class(**instance_kwargs)
 
+    def insert_many(self, relations: list[R]) -> list[R]:
+        """Insert multiple relations into the database in a single transaction.
+
+        More efficient than calling insert() multiple times.
+
+        Args:
+            relations: List of relation instances to insert
+
+        Returns:
+            List of inserted relation instances
+
+        Example:
+            employments = [
+                Employment(
+                    position="Engineer",
+                    salary=100000,
+                    employee=alice,
+                    employer=tech_corp
+                ),
+                Employment(
+                    position="Manager",
+                    salary=120000,
+                    employee=bob,
+                    employer=tech_corp
+                ),
+            ]
+            Employment.manager(db).insert_many(employments)
+        """
+        if not relations:
+            return []
+
+        # Build query
+        query = Query()
+
+        # Collect all unique role players to match
+        all_players = {}  # key: (entity_type, key_attr_values) -> player_var
+        player_counter = 0
+
+        # First pass: collect all unique players from all relation instances
+        for relation in relations:
+            # Extract role players from instance
+            for role_name, role in self.model_class._roles.items():
+                player_entity = relation.__dict__.get(role_name)
+                if player_entity is None:
+                    continue
+                # Create unique key for this player based on key attributes
+                player_type = player_entity.get_type_name()
+                owned_attrs = player_entity.get_owned_attributes()
+
+                key_values = []
+                for field_name, attr_info in owned_attrs.items():
+                    if attr_info.flags.is_key:
+                        value = getattr(player_entity, field_name, None)
+                        if value is not None:
+                            attr_name = attr_info.typ.get_attribute_name()
+                            key_values.append((attr_name, value))
+
+                player_key = (player_type, tuple(sorted(key_values)))
+
+                if player_key not in all_players:
+                    player_var = f"$player{player_counter}"
+                    player_counter += 1
+                    all_players[player_key] = player_var
+
+                    # Build match clause for this player
+                    match_parts = [f"{player_var} isa {player_type}"]
+                    for attr_name, value in key_values:
+                        formatted_value = self._format_value(value)
+                        match_parts.append(f"has {attr_name} {formatted_value}")
+
+                    query.match(", ".join(match_parts))
+
+        # Second pass: build insert patterns for relations
+        insert_patterns = []
+
+        for i, relation in enumerate(relations):
+            # Map role players to their variables
+            role_var_map = {}
+            for role_name, role in self.model_class._roles.items():
+                player_entity = relation.__dict__.get(role_name)
+                if player_entity is None:
+                    raise ValueError(f"Missing role player for role: {role_name}")
+
+                # Find the player variable
+                player_type = player_entity.get_type_name()
+                owned_attrs = player_entity.get_owned_attributes()
+
+                key_values = []
+                for field_name, attr_info in owned_attrs.items():
+                    if attr_info.flags.is_key:
+                        value = getattr(player_entity, field_name, None)
+                        if value is not None:
+                            attr_name = attr_info.typ.get_attribute_name()
+                            key_values.append((attr_name, value))
+
+                player_key = (player_type, tuple(sorted(key_values)))
+                player_var = all_players[player_key]
+                role_var_map[role_name] = (player_var, role.role_name)
+
+            # Build insert pattern for this relation
+            role_players_str = ', '.join([f'{role_name}: {var}' for var, role_name in role_var_map.values()])
+            insert_pattern = f"({role_players_str}) isa {self.model_class.get_type_name()}"
+
+            # Extract and add attributes from relation instance
+            attr_parts = []
+            for field_name in self.model_class._owned_attrs:
+                if hasattr(relation, field_name):
+                    attr_value = getattr(relation, field_name)
+                    if attr_value is None:
+                        continue
+
+                    # Extract raw value from Attribute instances
+                    if hasattr(attr_value, 'value'):
+                        attr_value = attr_value.value
+
+                    owned_attrs = self.model_class.get_owned_attributes()
+                    if field_name in owned_attrs:
+                        attr_info = owned_attrs[field_name]
+                        typeql_attr_name = attr_info.typ.get_attribute_name()
+                        formatted_value = self._format_value(attr_value)
+                        attr_parts.append(f"has {typeql_attr_name} {formatted_value}")
+
+            if attr_parts:
+                insert_pattern += ", " + ", ".join(attr_parts)
+
+            insert_patterns.append(insert_pattern)
+
+        # Add all insert patterns to query
+        query.insert(";\n".join(insert_patterns))
+
+        # Execute the query
+        query_str = query.build()
+        with self.db.transaction("write") as tx:
+            tx.execute(query_str)
+            tx.commit()
+
+        return relations
+
     @staticmethod
     def _format_value(value: Any) -> str:
         """Format a Python value for TypeQL."""
@@ -369,25 +552,141 @@ class RelationManager[R: Relation]:
         else:
             return f'"{str(value)}"'
 
-    def get(self, **role_players) -> list[R]:
-        """Get relations matching role players.
+    def get(self, **filters) -> list[R]:
+        """Get relations matching filters.
+
+        Supports filtering by both attributes and role players.
 
         Args:
-            role_players: Role player filters
+            filters: Attribute filters and/or role player filters
+                - Attribute filters: position="Engineer", salary=100000, is_remote=True
+                - Role player filters: employee=person_entity, employer=company_entity
 
         Returns:
             List of matching relations
+
+        Example:
+            # Filter by attribute
+            Employment.manager(db).get(position="Engineer")
+
+            # Filter by role player
+            Employment.manager(db).get(employee=alice)
+
+            # Filter by both
+            Employment.manager(db).get(position="Manager", employer=tech_corp)
         """
-        query = QueryBuilder.match_relation(self.model_class, role_players=role_players)
-        query.fetch("$r")
+        # Build TypeQL 3.x query with correct syntax for fetching relations with role players
+        owned_attrs = self.model_class.get_owned_attributes()
+
+        # Separate attribute filters from role player filters
+        attr_filters = {}
+        role_player_filters = {}
+
+        for key, value in filters.items():
+            if key in self.model_class._roles:
+                # This is a role player filter
+                role_player_filters[key] = value
+            elif key in owned_attrs:
+                # This is an attribute filter
+                attr_filters[key] = value
+            else:
+                raise ValueError(f"Unknown filter: {key}")
+
+        # Build match clause with inline role players
+        role_parts = []
+        role_info = {}  # role_name -> (var, entity_class)
+        for role_name, role in self.model_class._roles.items():
+            role_var = f"${role_name}"
+            role_parts.append(f"{role.role_name}: {role_var}")
+            role_info[role_name] = (role_var, role.player_entity_type)
+
+        roles_str = ", ".join(role_parts)
+        match_clauses = [f"$r isa {self.model_class.get_type_name()} ({roles_str})"]
+
+        # Add attribute filter clauses
+        for field_name, value in attr_filters.items():
+            attr_info = owned_attrs[field_name]
+            attr_name = attr_info.typ.get_attribute_name()
+            formatted_value = self._format_value(value)
+            match_clauses.append(f"$r has {attr_name} {formatted_value}")
+
+        # Add role player filter clauses
+        for role_name, player_entity in role_player_filters.items():
+            role_var = f"${role_name}"
+            entity_class = role_info[role_name][1]
+
+            # Match the role player by their key attributes
+            player_owned_attrs = entity_class.get_owned_attributes()
+            for field_name, attr_info in player_owned_attrs.items():
+                if attr_info.flags.is_key:
+                    key_value = getattr(player_entity, field_name, None)
+                    if key_value is not None:
+                        attr_name = attr_info.typ.get_attribute_name()
+                        # Extract value from Attribute instance if needed
+                        if hasattr(key_value, 'value'):
+                            key_value = key_value.value
+                        formatted_value = self._format_value(key_value)
+                        match_clauses.append(f"{role_var} has {attr_name} {formatted_value}")
+                        break
+
+        match_str = ";\n".join(match_clauses) + ";"
+
+        # Build fetch clause with nested structure for role players
+        fetch_items = []
+
+        # Add relation attributes
+        for field_name, attr_info in owned_attrs.items():
+            attr_name = attr_info.typ.get_attribute_name()
+            fetch_items.append(f'"{attr_name}": $r.{attr_name}')
+
+        # Add each role player as nested object
+        for role_name, (role_var, entity_class) in role_info.items():
+            fetch_items.append(f'"{role_name}": {{\n    {role_var}.*\n  }}')
+
+        fetch_body = ",\n  ".join(fetch_items)
+        fetch_str = f"fetch {{\n  {fetch_body}\n}};"
+
+        query_str = f"match\n{match_str}\n{fetch_str}"
 
         with self.db.transaction("read") as tx:
-            results = tx.execute(query.build())
+            results = tx.execute(query_str)
 
         # Convert results to relation instances
         relations = []
+
         for result in results:
-            relation = self.model_class()
+            # Extract relation attributes
+            attrs = {}
+            for field_name, attr_info in owned_attrs.items():
+                attr_class = attr_info.typ
+                attr_name = attr_class.get_attribute_name()
+                if attr_name in result:
+                    attrs[field_name] = result[attr_name]
+                else:
+                    attrs[field_name] = None
+
+            # Create relation instance
+            relation = self.model_class(**attrs)
+
+            # Extract role players from nested objects in result
+            for role_name, (role_var, entity_class) in role_info.items():
+                if role_name in result and isinstance(result[role_name], dict):
+                    player_data = result[role_name]
+                    # Extract player attributes
+                    player_attrs = {}
+                    for field_name, attr_info in entity_class.get_owned_attributes().items():
+                        attr_class = attr_info.typ
+                        attr_name = attr_class.get_attribute_name()
+                        if attr_name in player_data:
+                            player_attrs[field_name] = player_data[attr_name]
+                        else:
+                            player_attrs[field_name] = None
+
+                    # Create entity instance and assign to role
+                    if any(v is not None for v in player_attrs.values()):
+                        player_entity = entity_class(**player_attrs)
+                        setattr(relation, role_name, player_entity)
+
             relations.append(relation)
 
         return relations
