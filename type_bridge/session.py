@@ -141,6 +141,10 @@ class Database:
                 tx.commit()
             return results
 
+    def get_schema(self) -> str:
+        db = self.driver.databases.get(self.database_name)
+        return db.schema()
+
 
 class Transaction:
     """Wrapper around TypeDB transaction."""

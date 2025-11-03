@@ -264,6 +264,10 @@ def main() -> None:
     print("\nNote: Database is kept for inspection. Delete manually if needed.")
     print("=" * 70)
 
+    scm = db.get_schema()
+    print("Schema")
+    print(scm)
+
     # Close connection
     db.close()
 
