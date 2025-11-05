@@ -54,15 +54,14 @@ class DateTime(Attribute):
                 else datetime_type.fromisoformat(str(value))
             )
 
-        # Validator: accept datetime or attribute instance
-        def validate_datetime(value: Any) -> datetime_type:
+        # Validator: accept datetime or attribute instance, always return attribute instance
+        def validate_datetime(value: Any) -> "DateTime":
             if isinstance(value, cls):
-                return value._value if value._value is not None else datetime_type.now()
-            return (
-                value
-                if isinstance(value, datetime_type)
-                else datetime_type.fromisoformat(str(value))
-            )
+                return value  # Return attribute instance as-is
+            # Wrap raw datetime in attribute instance
+            if isinstance(value, datetime_type):
+                return cls(value)
+            return cls(datetime_type.fromisoformat(str(value)))
 
         return core_schema.with_info_plain_validator_function(
             lambda v, _: validate_datetime(v),

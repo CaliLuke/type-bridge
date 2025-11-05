@@ -347,10 +347,22 @@ entity cat sub animal,
 
 ```
 type_bridge/
-├── attribute.py       # Attribute base class, concrete types, and flags (Key, Unique, Min, Max, Range, EntityFlags, RelationFlags)
+├── attribute/         # Modular attribute package (refactored from attribute.py)
+│   ├── base.py        # Attribute abstract base class
+│   ├── string.py      # String attribute with concatenation operations
+│   ├── integer.py     # Integer attribute with arithmetic operations
+│   ├── double.py      # Double attribute
+│   ├── boolean.py     # Boolean attribute
+│   ├── datetime.py    # DateTime attribute
+│   └── flags.py       # Flag system (Key, Unique, Card, EntityFlags, RelationFlags)
+├── schema/            # Modular schema package (refactored from schema.py)
+│   ├── manager.py     # SchemaManager for schema operations
+│   ├── info.py        # SchemaInfo container
+│   ├── diff.py        # SchemaDiff, EntityChanges, RelationChanges for comparison
+│   ├── migration.py   # MigrationManager for migrations
+│   └── exceptions.py  # SchemaConflictError for conflict detection
 ├── models.py          # Entity/Relation classes using attribute ownership model
-├── crud.py            # EntityManager and RelationManager for CRUD operations
-├── schema.py          # SchemaManager and MigrationManager
+├── crud.py            # EntityManager and RelationManager for CRUD operations with fetching API
 ├── session.py         # Database connection and transaction management
 └── query.py           # TypeQL query builder
 ```
@@ -464,6 +476,368 @@ Entity and Relation classes are configured with:
 - `extra='allow'`: Allow extra fields for flexibility
 - `ignored_types`: Ignore TypeBridge-specific types (EntityFlags, RelationFlags, Role)
 
+## CRUD Operations with Fetching API
+
+TypeBridge provides type-safe CRUD managers with a modern fetching API for querying entities and relations.
+
+### EntityManager Operations
+
+Each Entity class can create a type-safe manager that preserves type information:
+
+```python
+from type_bridge import Database, Entity, EntityFlags, String, Integer, Flag, Key
+
+class Name(String):
+    pass
+
+class Age(Integer):
+    pass
+
+class Person(Entity):
+    flags = EntityFlags(type_name="person")
+    name: Name = Flag(Key)
+    age: Age | None
+
+# Connect to database
+db = Database(address="localhost:1729", database="mydb")
+db.connect()
+
+# Create manager
+person_manager = Person.manager(db)
+```
+
+### Insert Operations
+
+**Single insert**:
+```python
+alice = Person(name=Name("Alice"), age=Age(30))
+person_manager.insert(alice)
+```
+
+**Bulk insert** (more efficient for multiple entities):
+```python
+persons = [
+    Person(name=Name("Alice"), age=Age(30)),
+    Person(name=Name("Bob"), age=Age(25)),
+    Person(name=Name("Charlie"), age=Age(35)),
+]
+person_manager.insert_many(persons)
+```
+
+### Fetching Operations
+
+**Get all entities**:
+```python
+all_persons = person_manager.all()
+```
+
+**Get with attribute filters**:
+```python
+young_persons = person_manager.get(age=25)
+alice = person_manager.get(name="Alice")
+```
+
+**Chainable queries with EntityQuery**:
+```python
+# Create a query
+query = person_manager.filter(age=30)
+
+# Chain operations
+results = query.limit(10).offset(5).execute()
+
+# Get first result or None
+first_person = person_manager.filter(name="Alice").first()
+
+# Count matching entities
+count = person_manager.filter(age=30).count()
+```
+
+### Delete Operations
+
+```python
+# Delete entities matching filters
+deleted_count = person_manager.delete(name="Alice")
+```
+
+### Update Operations
+
+The update API follows the typical ORM pattern: fetch, modify, update.
+
+```python
+# Step 1: Fetch entity
+alice = person_manager.get(name="Alice")[0]
+
+# Step 2: Modify attributes directly on the entity instance
+alice.age = Age(31)
+alice.status = Status("active")
+alice.tags = [Tag("python"), Tag("typedb"), Tag("ai")]
+
+# Step 3: Persist changes to database
+person_manager.update(alice)
+```
+
+**Complete workflow examples**:
+
+```python
+# Update single-value attribute
+alice = person_manager.get(name="Alice")[0]
+alice.age = Age(31)
+person_manager.update(alice)
+
+# Update multi-value attribute
+alice = person_manager.get(name="Alice")[0]
+alice.tags = [Tag("python"), Tag("typedb"), Tag("machine-learning")]
+person_manager.update(alice)
+
+# Update multiple attributes at once
+bob = person_manager.get(name="Bob")[0]
+bob.age = Age(26)
+bob.status = Status("active")
+bob.tags = [Tag("java"), Tag("python")]
+person_manager.update(bob)
+
+# Clear multi-value attribute by setting to empty list
+alice = person_manager.get(name="Alice")[0]
+alice.tags = []
+person_manager.update(alice)
+```
+
+**TypeQL update semantics**:
+- **Single-value attributes** (`@card(0..1)` or `@card(1..1)`): Uses TypeQL `update` clause for efficient in-place updates
+- **Multi-value attributes** (e.g., `@card(0..5)`, `@card(2..)`): Deletes all old values first, then inserts new ones
+
+The update method reads the entity's current state and generates the appropriate TypeQL:
+
+```typeql
+match
+$e isa person, has name "Alice";
+delete
+has $tags of $e;
+insert
+$e has tags "python";
+$e has tags "typedb";
+update
+$e has age 31;
+```
+
+The update method automatically determines whether each attribute is single or multi-value based on its cardinality annotations, ensuring correct TypeQL generation.
+
+### RelationManager Operations
+
+Relations support similar operations with additional role player filtering:
+
+```python
+from type_bridge import Relation, RelationFlags, Role
+
+class Position(String):
+    pass
+
+class Employment(Relation):
+    flags = RelationFlags(type_name="employment")
+    employee: Role[Person] = Role("employee", Person)
+    employer: Role[Company] = Role("employer", Company)
+    position: Position
+
+# Create manager
+employment_manager = Employment.manager(db)
+
+# Insert relation - use typed instances
+employment = Employment(
+    employee=alice,
+    employer=techcorp,
+    position=Position("Engineer")
+)
+employment_manager.insert(employment)
+
+# Bulk insert relations
+employments = [
+    Employment(employee=alice, employer=techcorp, position=Position("Engineer")),
+    Employment(employee=bob, employer=startup, position=Position("Designer")),
+]
+employment_manager.insert_many(employments)
+
+# Get relations by attribute filter
+engineers = employment_manager.get(position="Engineer")
+
+# Get relations by role player filter
+alice_jobs = employment_manager.get(employee=alice)
+techcorp_employees = employment_manager.get(employer=techcorp)
+```
+
+### Type Safety
+
+EntityManager and RelationManager use Python's generic type syntax to preserve type information:
+
+```python
+class EntityManager[E: Entity]:
+    def insert(self, entity: E) -> E:
+        ...
+    def insert_many(self, entities: list[E]) -> list[E]:
+        ...
+    def get(self, **filters) -> list[E]:
+        ...
+    def filter(self, **filters) -> EntityQuery[E]:
+        ...
+    def all(self) -> list[E]:
+        ...
+
+# Type checkers understand the returned types
+alice = Person(name=Name("Alice"), age=Age(30))
+person_manager.insert(alice)  # ✓ Type-safe
+persons: list[Person] = person_manager.all()  # ✓ Type-safe
+```
+
+## Schema Management with Conflict Detection
+
+TypeBridge provides comprehensive schema management with automatic conflict detection to prevent accidental data loss.
+
+### Basic Schema Operations
+
+```python
+from type_bridge import SchemaManager, Database
+
+db = Database(address="localhost:1729", database="mydb")
+db.connect()
+
+# Create schema manager
+schema_manager = SchemaManager(db)
+
+# Register models
+schema_manager.register(Person, Company, Employment)
+
+# Generate TypeQL schema
+typeql_schema = schema_manager.generate_schema()
+print(typeql_schema)
+
+# Sync schema to database
+schema_manager.sync_schema()
+```
+
+### Automatic Conflict Detection
+
+SchemaManager automatically detects breaking changes and prevents data loss:
+
+```python
+from type_bridge.schema import SchemaConflictError
+
+# Initial schema creation
+schema_manager.sync_schema()  # ✓ Success
+
+# Modify your models (e.g., remove an attribute)
+class Person(Entity):
+    flags = EntityFlags(type_name="person")
+    name: Name = Flag(Key)
+    # age attribute removed - BREAKING CHANGE!
+
+# Attempt to sync
+try:
+    schema_manager.sync_schema()  # ✗ Raises SchemaConflictError
+except SchemaConflictError as e:
+    print(e.diff.summary())
+    # Output:
+    # Schema Differences:
+    # Modified Entities:
+    #   person:
+    #     - Removed attributes: age
+
+# Force recreate (⚠️ DATA LOSS - drops and recreates database)
+schema_manager.sync_schema(force=True)
+```
+
+### Schema Comparison and Diff
+
+Compare schemas to understand changes before applying them:
+
+```python
+from type_bridge.schema import SchemaInfo
+
+# Collect current schema
+old_schema = schema_manager.collect_schema_info()
+
+# Modify your models
+class Person(Entity):
+    flags = EntityFlags(type_name="person")
+    name: Name = Flag(Key)
+    age: Age | None
+    email: Email = Flag(Unique)  # New attribute!
+
+# Collect new schema
+new_schema = schema_manager.collect_schema_info()
+
+# Compare and view differences
+diff = old_schema.compare(new_schema)
+
+if diff.has_changes():
+    print(diff.summary())
+    # Output:
+    # Schema Differences:
+    # Modified Entities:
+    #   person:
+    #     + Added attributes: email (unique)
+```
+
+### Schema Diff Details
+
+The SchemaDiff class provides granular change tracking:
+
+```python
+# Check for specific changes
+print(f"Added entities: {diff.added_entities}")
+print(f"Removed entities: {diff.removed_entities}")
+print(f"Added relations: {diff.added_relations}")
+print(f"Removed relations: {diff.removed_relations}")
+print(f"Added attributes: {diff.added_attributes}")
+print(f"Removed attributes: {diff.removed_attributes}")
+
+# Check entity modifications
+for entity_type, changes in diff.modified_entities.items():
+    print(f"\n{entity_type} changes:")
+    print(f"  Added attributes: {changes.added_attributes}")
+    print(f"  Removed attributes: {changes.removed_attributes}")
+
+    # Check attribute flag changes (cardinality, key, unique)
+    for attr_name, flag_change in changes.modified_attributes.items():
+        print(f"  Modified {attr_name}:")
+        print(f"    Old: {flag_change.old_flags}")
+        print(f"    New: {flag_change.new_flags}")
+
+# Check relation modifications
+for relation_type, changes in diff.modified_relations.items():
+    print(f"\n{relation_type} changes:")
+    print(f"  Added roles: {changes.added_roles}")
+    print(f"  Removed roles: {changes.removed_roles}")
+    print(f"  Added attributes: {changes.added_attributes}")
+    print(f"  Removed attributes: {changes.removed_attributes}")
+```
+
+### Migration Manager
+
+For complex schema migrations, use MigrationManager:
+
+```python
+from type_bridge.schema import MigrationManager
+
+migration_manager = MigrationManager(db)
+
+# Add migrations
+migration_manager.add_migration(
+    name="add_email_to_person",
+    schema="define person owns email;"
+)
+
+migration_manager.add_migration(
+    name="add_company_entity",
+    schema="""
+    define
+    entity company,
+        owns name @key;
+    """
+)
+
+# Apply all migrations in order
+migration_manager.apply_migrations()
+```
+
 ## Implementation Status
 
 1. ✅ Implement core Attribute system
@@ -473,9 +847,12 @@ Entity and Relation classes are configured with:
 5. ✅ Support Python inheritance for supertypes
 6. ✅ Integrate Pydantic v2 for validation and serialization
 7. ✅ Add Literal type support for type-safe enum-like values
-8. ✅ Create comprehensive examples
-9. ✅ Write comprehensive tests
-10. ✅ Update documentation and README
+8. ✅ Implement fetching API (get, filter, all) with EntityQuery
+9. ✅ Implement bulk operations (insert_many for entities and relations)
+10. ✅ Implement schema conflict detection with SchemaDiff
+11. ✅ Create comprehensive examples
+12. ✅ Write comprehensive tests
+13. ✅ Update documentation and README
 
 ## Conclusion
 

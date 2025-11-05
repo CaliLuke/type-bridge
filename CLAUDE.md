@@ -47,8 +47,19 @@ uv run ruff format .         # Format code
 
 ### Running Examples
 ```bash
-uv run python examples/basic_usage.py
-uv run python examples/advanced_usage.py
+# Basic CRUD examples (start here!)
+uv run python examples/basic/crud_01_define.py  # Schema definition and basic usage
+uv run python examples/basic/crud_02_insert.py  # Bulk insertion
+uv run python examples/basic/crud_03_read.py    # Fetching API: get(), filter(), all()
+uv run python examples/basic/crud_04_update.py  # Update API for single and multi-value attrs
+
+# Advanced examples
+uv run python examples/advanced/schema_01_manager.py     # Schema operations
+uv run python examples/advanced/schema_02_comparison.py  # Schema diff and comparison
+uv run python examples/advanced/schema_03_conflict.py    # Conflict detection
+uv run python examples/advanced/pydantic_features.py     # Pydantic integration
+uv run python examples/advanced/type_safety.py           # Literal types for type safety
+uv run python examples/advanced/string_representation.py # Custom __str__ and __repr__
 ```
 
 ## Project Structure
@@ -56,26 +67,48 @@ uv run python examples/advanced_usage.py
 ```
 type_bridge/
 ├── __init__.py           # Main package exports
-├── attribute.py          # Attribute base class, concrete types (String, Integer, etc.),
-│                         # Flag system (Key, Unique, Card), and EntityFlags/RelationFlags
+├── attribute/            # Modular attribute system (refactored from attribute.py)
+│   ├── __init__.py       # Attribute package exports
+│   ├── base.py           # Abstract Attribute base class
+│   ├── string.py         # String attribute with concatenation operations
+│   ├── integer.py        # Integer attribute with arithmetic operations
+│   ├── double.py         # Double attribute
+│   ├── boolean.py        # Boolean attribute
+│   ├── datetime.py       # DateTime attribute
+│   └── flags.py          # Flag system (Key, Unique, Card, EntityFlags, RelationFlags)
 ├── models.py             # Base Entity and Relation classes using attribute ownership model
 ├── query.py              # TypeQL query builder
 ├── session.py            # Database connection and transaction management
-├── crud.py               # EntityManager and RelationManager for CRUD ops
-└── schema.py             # Schema generation and migration utilities
+├── crud.py               # EntityManager and RelationManager for CRUD ops with fetching API
+└── schema/               # Modular schema management (refactored from schema.py)
+    ├── __init__.py       # Schema package exports
+    ├── manager.py        # SchemaManager for schema operations
+    ├── info.py           # SchemaInfo container
+    ├── diff.py           # SchemaDiff, EntityChanges, RelationChanges for comparison
+    ├── migration.py      # MigrationManager for migrations
+    └── exceptions.py     # SchemaConflictError for conflict detection
 
 examples/
-├── basic_usage.py        # Complete example showing attributes, entities, relations,
-│                         # cardinality, and schema generation
-├── pydantic_features.py  # Pydantic integration examples
-└── literal_types.py      # Literal type support examples
+├── basic/                        # Basic CRUD examples (start here!)
+│   ├── crud_01_define.py         # Schema definition and basic usage
+│   ├── crud_02_insert.py         # Bulk insertion
+│   ├── crud_03_read.py           # Fetching API: get(), filter(), all()
+│   └── crud_04_update.py         # Update API for single and multi-value attrs
+└── advanced/                     # Advanced features
+    ├── schema_01_manager.py      # Schema operations
+    ├── schema_02_comparison.py   # Schema diff and comparison
+    ├── schema_03_conflict.py     # Conflict detection and resolution
+    ├── pydantic_features.py      # Pydantic integration
+    ├── type_safety.py            # Literal type support
+    └── string_representation.py  # Custom __str__ and __repr__
 
 tests/
-├── test_basic.py              # Comprehensive tests for attribute API, entities, relations,
-│                              # Flag system, and cardinality
-├── test_cardinal_api.py       # Tests for Card API with Flag system
-├── test_literal_support.py    # Tests for Literal type support
-└── test_pydantic_integration.py # Tests for Pydantic integration features
+├── conftest.py                   # Pytest configuration
+├── test_basic.py                 # Comprehensive tests for attribute API, entities, relations,
+│                                 # Flag system, and cardinality
+├── test_cardinal_api.py          # Tests for Card API with Flag system
+├── test_literal_support.py       # Tests for Literal type support
+└── test_pydantic_integration.py  # Tests for Pydantic integration features
 ```
 
 ## TypeDB ORM Design Considerations
@@ -304,6 +337,308 @@ The project minimizes `Any` usage for type safety:
 - All `__get_pydantic_core_schema__` methods use proper TypeVars (`StrValue`, `IntValue`, etc.)
 - No other `Any` types in the core attribute system
 
+## CRUD Operations and Fetching API
+
+TypeBridge provides type-safe CRUD managers with a modern fetching API for entities and relations.
+
+### EntityManager
+
+Each Entity class can create a type-safe manager:
+
+```python
+from type_bridge import Database, Entity, EntityFlags, String, Integer, Flag, Key
+
+class Name(String):
+    pass
+
+class Age(Integer):
+    pass
+
+class Person(Entity):
+    flags = EntityFlags(type_name="person")
+    name: Name = Flag(Key)
+    age: Age | None
+
+# Connect to database
+db = Database(address="localhost:1729", database="mydb")
+db.connect()
+
+# Create manager
+person_manager = Person.manager(db)
+```
+
+### Fetching Methods
+
+**Insert single entity**:
+```python
+alice = Person(name=Name("Alice"), age=Age(30))
+person_manager.insert(alice)
+```
+
+**Bulk insert (more efficient)**:
+```python
+persons = [
+    Person(name=Name("Alice"), age=Age(30)),
+    Person(name=Name("Bob"), age=Age(25)),
+    Person(name=Name("Charlie"), age=Age(35)),
+]
+person_manager.insert_many(persons)
+```
+
+**Get entities with filters**:
+```python
+# Get all entities
+all_persons = person_manager.all()
+
+# Get with attribute filters
+young_persons = person_manager.get(age=25)
+```
+
+**Chainable queries with EntityQuery**:
+```python
+# Create chainable query
+query = person_manager.filter(age=30)
+
+# Chain methods
+results = query.limit(10).offset(5).execute()
+
+# Get first result
+first_person = person_manager.filter(name="Alice").first()  # Returns Person | None
+
+# Count results
+count = person_manager.filter(age=30).count()
+```
+
+**Delete entities**:
+```python
+deleted_count = person_manager.delete(name="Alice")
+```
+
+**Update entities**:
+```python
+# Fetch entity
+alice = person_manager.get(name="Alice")[0]
+
+# Modify attributes directly
+alice.age = Age(31)
+alice.tags = [Tag("python"), Tag("typedb"), Tag("ai")]
+
+# Persist changes to database
+person_manager.update(alice)
+
+# Typical workflow: Fetch → Modify → Update
+bob = person_manager.get(name="Bob")[0]
+bob.age = Age(26)
+bob.status = Status("active")
+bob.tags = [Tag("java"), Tag("python")]
+person_manager.update(bob)
+```
+
+**TypeQL update semantics**:
+- **Single-value attributes** (`@card(0..1)` or `@card(1..1)`): Uses TypeQL `update` clause
+- **Multi-value attributes** (e.g., `@card(0..5)`, `@card(2..)`): Deletes all old values, then inserts new ones
+
+The update method reads the entity's current state and generates the appropriate TypeQL:
+
+```typeql
+match
+$e isa person, has name "Alice";
+delete
+has $tags of $e;
+insert
+$e has tags "python";
+$e has tags "typedb";
+update
+$e has age 31;
+```
+
+### RelationManager
+
+Relations support similar operations with role player filtering:
+
+```python
+from type_bridge import Relation, RelationFlags, Role
+
+class Position(String):
+    pass
+
+class Employment(Relation):
+    flags = RelationFlags(type_name="employment")
+    employee: Role[Person] = Role("employee", Person)
+    employer: Role[Company] = Role("employer", Company)
+    position: Position
+
+# Create manager
+employment_manager = Employment.manager(db)
+
+# Insert relation - use typed instances
+employment = Employment(
+    employee=alice,
+    employer=techcorp,
+    position=Position("Engineer")
+)
+employment_manager.insert(employment)
+
+# Get relations by attribute filter
+engineers = employment_manager.get(position="Engineer")
+
+# Get relations by role player filter
+alice_jobs = employment_manager.get(employee=alice)
+```
+
+### Type Safety
+
+EntityManager and RelationManager are generic classes that preserve type information:
+
+```python
+class EntityManager[E: Entity]:
+    def insert(self, entity: E) -> E:
+        ...
+    def get(self, **filters) -> list[E]:
+        ...
+    def filter(self, **filters) -> EntityQuery[E]:
+        ...
+
+# Type checkers understand the returned type
+alice = Person(name=Name("Alice"), age=Age(30))
+person_manager.insert(alice)  # ✓ Type-safe
+persons: list[Person] = person_manager.all()  # ✓ Type-safe
+```
+
+## Schema Management and Conflict Detection
+
+TypeBridge provides comprehensive schema management with automatic conflict detection.
+
+### SchemaManager
+
+The SchemaManager handles schema registration, generation, and synchronization:
+
+```python
+from type_bridge import SchemaManager, Database
+
+db = Database(address="localhost:1729", database="mydb")
+db.connect()
+
+# Create schema manager
+schema_manager = SchemaManager(db)
+
+# Register models
+schema_manager.register(Person, Company, Employment)
+
+# Generate TypeQL schema
+typeql_schema = schema_manager.generate_schema()
+print(typeql_schema)
+
+# Sync schema to database
+schema_manager.sync_schema()
+```
+
+### Conflict Detection
+
+SchemaManager automatically detects schema conflicts and prevents data loss:
+
+```python
+from type_bridge.schema import SchemaConflictError
+
+# First time - creates schema
+schema_manager.sync_schema()  # ✓ Success
+
+# Modify your models (e.g., remove an attribute, change cardinality)
+class Person(Entity):
+    flags = EntityFlags(type_name="person")
+    name: Name = Flag(Key)
+    # age attribute removed!
+
+# Try to sync again
+try:
+    schema_manager.sync_schema()  # ✗ Raises SchemaConflictError
+except SchemaConflictError as e:
+    print(e.diff.summary())  # Shows what changed
+    # Output:
+    # Schema Differences:
+    # Modified Entities:
+    #   person:
+    #     - Removed attributes: age
+
+# Force recreate (⚠️ DATA LOSS)
+schema_manager.sync_schema(force=True)
+```
+
+### Schema Comparison
+
+Compare schemas to understand changes:
+
+```python
+from type_bridge.schema import SchemaInfo
+
+# Collect current schema
+old_schema = schema_manager.collect_schema_info()
+
+# Make changes to your models
+class Person(Entity):
+    flags = EntityFlags(type_name="person")
+    name: Name = Flag(Key)
+    age: Age | None
+    email: Email = Flag(Unique)  # New attribute!
+
+# Collect new schema
+new_schema = schema_manager.collect_schema_info()
+
+# Compare
+diff = old_schema.compare(new_schema)
+print(diff.summary())
+# Output:
+# Schema Differences:
+# Modified Entities:
+#   person:
+#     + Added attributes: email (unique)
+```
+
+### Schema Diff Details
+
+The SchemaDiff class tracks granular changes:
+
+- **Entity changes**: Added, removed, modified entities
+- **Relation changes**: Added, removed, modified relations
+- **Attribute changes**: Added, removed attributes
+- **Ownership changes**: Attributes added/removed from entities
+- **Flag changes**: Cardinality, key, unique annotation changes
+- **Role changes**: Roles added/removed from relations
+
+Example usage:
+
+```python
+if diff.has_changes():
+    print(f"Added entities: {diff.added_entities}")
+    print(f"Removed attributes: {diff.removed_attributes}")
+
+    for entity_type, changes in diff.modified_entities.items():
+        print(f"{entity_type}:")
+        print(f"  Added attributes: {changes.added_attributes}")
+        print(f"  Removed attributes: {changes.removed_attributes}")
+        for attr, flag_change in changes.modified_attributes.items():
+            print(f"  Modified: {attr} - {flag_change}")
+```
+
+### Migration Manager
+
+For complex schema migrations, use MigrationManager:
+
+```python
+from type_bridge.schema import MigrationManager
+
+migration_manager = MigrationManager(db)
+
+# Add migrations
+migration_manager.add_migration(
+    name="add_email_to_person",
+    schema="define person owns email;"
+)
+
+# Apply all migrations
+migration_manager.apply_migrations()
+```
+
 ## Dependencies
 
 The project requires:
@@ -367,7 +702,7 @@ uv run pyright tests/        # Check tests (note: intentional validation errors 
 
 All tests must pass:
 ```bash
-uv run python -m pytest tests/ -v  # All 50 tests must pass
+uv run python -m pytest tests/ -v  # All 38 tests must pass
 ```
 
 When adding new features:

@@ -232,9 +232,17 @@ def test_entity_instance():
         name: Name
         age: Age
 
-    alice = Person(name="Alice", age=30)
-    assert alice.name == "Alice"
-    assert alice.age == 30
+    # NOTE: Intentionally using raw values to test Pydantic's type coercion
+    alice = Person(name="Alice", age=30)  # type: ignore[arg-type]
+    # Strict type safety: attributes are wrapped instances
+    assert isinstance(alice.name, Name)
+    assert not isinstance(alice.name, str)  # Not a raw str
+    assert alice.name != "Alice"  # Not equal to raw value
+    assert alice.name.value == "Alice"  # Access raw value via .value
+    assert isinstance(alice.age, Age)
+    assert not isinstance(alice.age, int)  # Not a raw int
+    assert alice.age != 30  # Not equal to raw value
+    assert alice.age.value == 30  # Access raw value via .value
 
 
 def test_entity_schema_generation():
@@ -276,7 +284,8 @@ def test_entity_insert_query():
         name: Name
         age: Age
 
-    alice = Person(name="Alice", age=30)
+    # NOTE: Intentionally using raw values to test Pydantic's type coercion
+    alice = Person(name="Alice", age=30)  # type: ignore[arg-type]
     query = alice.to_insert_query()
 
     assert "$e isa person" in query

@@ -53,11 +53,11 @@ class Boolean(Attribute):
                 return bool(value._value) if value._value is not None else False
             return bool(value)
 
-        # Validator: accept bool or attribute instance, serialize to bool
-        def validate_boolean(value: Any) -> bool:
+        # Validator: accept bool or attribute instance, always return attribute instance
+        def validate_boolean(value: Any) -> "Boolean":
             if isinstance(value, cls):
-                return value._value if value._value is not None else False
-            return bool(value)
+                return value  # Return attribute instance as-is
+            return cls(bool(value))  # Wrap raw bool in attribute instance
 
         return core_schema.with_info_plain_validator_function(
             lambda v, _: validate_boolean(v),

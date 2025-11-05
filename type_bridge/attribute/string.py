@@ -86,11 +86,11 @@ class String(Attribute):
                 ),
             )
 
-        # Default: accept str or attribute instance, serialize to str
-        def validate_string(value: Any) -> str:
+        # Default: accept str or attribute instance, always return attribute instance
+        def validate_string(value: Any) -> "String":
             if isinstance(value, cls):
-                return value._value if value._value is not None else ""
-            return str(value)
+                return value  # Return attribute instance as-is
+            return cls(str(value))  # Wrap raw str in attribute instance
 
         return core_schema.with_info_plain_validator_function(
             lambda v, _: validate_string(v),

@@ -177,11 +177,11 @@ class Double(Attribute):
                 return float(value._value) if value._value is not None else 0.0
             return float(value)
 
-        # Validator: accept float or attribute instance, serialize to float
-        def validate_double(value: Any) -> float:
+        # Validator: accept float or attribute instance, always return attribute instance
+        def validate_double(value: Any) -> "Double":
             if isinstance(value, cls):
-                return value._value if value._value is not None else 0.0
-            return float(value)
+                return value  # Return attribute instance as-is
+            return cls(float(value))  # Wrap raw float in attribute instance
 
         return core_schema.with_info_plain_validator_function(
             lambda v, _: validate_double(v),

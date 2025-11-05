@@ -24,9 +24,8 @@ class Attribute(ABC):
             name: Name
             age: Age
 
-        # Both patterns work:
-        person1 = Person(name="Alice", age=30)              # Raw values
-        person2 = Person(name=Name("Alice"), age=Age(30))   # Attribute instances
+        # Direct instantiation with wrapped types (best practice):
+        person = Person(name=Name("Alice"), age=Age(30))
     """
 
     # Class-level metadata
@@ -71,6 +70,28 @@ class Attribute(ABC):
         """Repr shows the attribute type and value."""
         cls_name = self.__class__.__name__
         return f"{cls_name}({self._value!r})"
+
+    def __eq__(self, other: object) -> bool:
+        """Compare attribute with another attribute instance.
+
+        For strict type safety, Attribute instances do NOT compare equal to raw values.
+        To access the raw value, use the `.value` property.
+
+        Examples:
+            Age(20) == Age(20)  # True (same type, same value)
+            Age(20) == Id(20)   # False (different types!)
+            Age(20) == 20       # False (not equal to raw value!)
+            Age(20).value == 20 # True (access raw value explicitly)
+        """
+        if isinstance(other, Attribute):
+            # Compare two attribute instances: both type and value must match
+            return type(self) is type(other) and self._value == other._value
+        # Do not compare with non-Attribute objects (strict type safety)
+        return False
+
+    def __hash__(self) -> int:
+        """Make attribute hashable based on its type and value."""
+        return hash((type(self), self._value))
 
     @classmethod
     def get_attribute_name(cls) -> str:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime as datetime_type
 from typing import (
@@ -15,7 +16,7 @@ from typing import (
     get_type_hints,
 )
 
-from pydantic import BaseModel, ConfigDict, GetCoreSchemaHandler
+from pydantic import BaseModel, ConfigDict, GetCoreSchemaHandler, model_validator
 from pydantic_core import CoreSchema
 
 from type_bridge.attribute import (
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
     from type_bridge.crud import EntityManager, RelationManager
     from type_bridge.session import Database
 
-# Type variables for self types
+# Type variables for self types (use string forward refs to avoid circular import)
 E = TypeVar("E", bound="Entity")
 R = TypeVar("R", bound="Relation")
 
@@ -236,6 +237,7 @@ class Entity(BaseModel):
         validate_assignment=True,  # Validate on attribute assignment
         extra="allow",  # Allow extra fields for flexibility
         ignored_types=(EntityFlags,),  # Ignore EntityFlags type for flags field
+        revalidate_instances="always",  # Revalidate on model_copy
     )
 
     # Internal metadata (class-level)
@@ -287,9 +289,6 @@ class Entity(BaseModel):
 
             # Extract attribute type and cardinality/key/unique metadata
             field_info = extract_metadata(field_type)
-            base_type = (
-                _get_base_type_for_attribute(field_info.attr_type) if field_info.attr_type else None
-            )
 
             # Check if field type is a list annotation
             field_origin = get_origin(field_type)
@@ -345,58 +344,92 @@ class Entity(BaseModel):
 
                 owned_attrs[field_name] = ModelAttrInfo(typ=field_info.attr_type, flags=flags)
 
-                # Rewrite annotation to include base type for type checkers
-                # This ensures pyright understands:
-                # - name: Name → name: str | Name
-                # - tags: Min[2, Tag] → tags: list[str]
-                # - age: Optional[Age] → age: int | Age | None
-                if base_type:
-                    # Check cardinality to determine if we need a list
-                    is_multi = flags.card_max is None or (
-                        flags.card_max is not None and flags.card_max > 1
-                    )
-
-                    # Check if already Optional/Union with None
-                    origin = get_origin(field_type)
-                    from types import UnionType
-
-                    if origin is UnionType or str(origin) == "typing.Union":
-                        args = get_args(field_type)
-                        has_none = type(None) in args or None in args
-                        if has_none:
-                            # Already Optional
-                            if is_multi:
-                                # Optional list: list[int | Attribute] | None
-                                new_annotations[field_name] = (
-                                    list[base_type | field_info.attr_type] | None
-                                )
-                            else:
-                                # Optional single: int | Age | None
-                                new_annotations[field_name] = (
-                                    base_type | field_info.attr_type | None
-                                )
-                        else:
-                            # Union but not Optional
-                            if is_multi:
-                                new_annotations[field_name] = list[base_type | field_info.attr_type]
-                            else:
-                                new_annotations[field_name] = base_type | field_info.attr_type
-                    else:
-                        # Not a union
-                        if is_multi:
-                            # Multiple values: list[str | Attribute] (accept both raw values and attribute instances)
-                            new_annotations[field_name] = list[base_type | field_info.attr_type]
-                        else:
-                            # Single value: str | Name
-                            new_annotations[field_name] = base_type | field_info.attr_type
-                else:
-                    new_annotations[field_name] = field_type
+                # Keep annotation as-is - no need for unions since validators always return Attribute instances
+                # - name: Name → stays as Name
+                # - age: Age | None → stays as Age | None
+                # - tags: list[Tag] → stays as list[Tag]
+                new_annotations[field_name] = field_type
             else:
                 new_annotations[field_name] = field_type
 
         # Update class annotations for Pydantic's benefit
         cls.__annotations__ = new_annotations
         cls._owned_attrs = owned_attrs
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _wrap_raw_values(cls, values, handler):
+        """Ensure all attribute fields are wrapped in Attribute instances.
+
+        This catches edge cases like default values and model_copy that bypass validators.
+        Uses 'wrap' mode to intercept all validation paths including model_copy.
+        """
+        # First, let Pydantic do its validation
+        instance = handler(values)
+
+        # Then wrap any raw values
+        owned_attrs = cls.get_owned_attributes()
+        for field_name, attr_info in owned_attrs.items():
+            value = getattr(instance, field_name, None)
+            if value is None:
+                continue
+
+            attr_class = attr_info.typ
+
+            # Check if it's a list (multi-value attribute)
+            if isinstance(value, list):
+                wrapped_list = []
+                for item in value:
+                    if not isinstance(item, attr_class):
+                        # Wrap raw value
+                        wrapped_list.append(attr_class(item))
+                    else:
+                        wrapped_list.append(item)
+                # Use object.__setattr__ to bypass validate_assignment and avoid recursion
+                object.__setattr__(instance, field_name, wrapped_list)
+            else:
+                # Single value
+                if not isinstance(value, attr_class):
+                    # Wrap raw value
+                    # Use object.__setattr__ to bypass validate_assignment and avoid recursion
+                    object.__setattr__(instance, field_name, attr_class(value))
+
+        return instance
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False):
+        """Override model_copy to ensure raw values are wrapped in Attribute instances.
+
+        Pydantic's model_copy bypasses validators even with revalidate_instances='always',
+        so we override it to force proper validation.
+        """
+        # Call parent model_copy
+        copied = super().model_copy(update=update, deep=deep)
+
+        # Force wrap any raw values in the update dict
+        if update:
+            owned_attrs = self.__class__.get_owned_attributes()
+            for field_name, new_value in update.items():
+                if field_name not in owned_attrs:
+                    continue
+
+                attr_info = owned_attrs[field_name]
+                attr_class = attr_info.typ
+
+                # Check if it's a list (multi-value attribute)
+                if isinstance(new_value, list):
+                    wrapped_list = []
+                    for item in new_value:
+                        if not isinstance(item, attr_class):
+                            wrapped_list.append(attr_class(item))
+                        else:
+                            wrapped_list.append(item)
+                    object.__setattr__(copied, field_name, wrapped_list)
+                else:
+                    # Single value
+                    if not isinstance(new_value, attr_class):
+                        object.__setattr__(copied, field_name, attr_class(new_value))
+
+        return copied
 
     @classmethod
     def get_type_name(cls) -> str:
@@ -445,12 +478,11 @@ class Entity(BaseModel):
             db = Database()
             db.connect()
 
-            # Old way
-            person_mgr = EntityManager(db, Person)
-            person = person_mgr.insert(name="Alice", age=30)
+            # Create typed entity instance
+            person = Person(name=Name("Alice"), age=Age(30))
 
-            # New way - with full type safety!
-            person = Person.manager(db).insert(name="Alice", age=30)
+            # Insert using manager - with full type safety!
+            Person.manager(db).insert(person)
             # person is inferred as Person type by type checkers
         """
         from type_bridge.crud import EntityManager
@@ -578,7 +610,7 @@ class Entity(BaseModel):
                 continue
 
             # Extract actual value from Attribute instance
-            if hasattr(value, 'value'):
+            if hasattr(value, "value"):
                 display_value = value.value
             else:
                 display_value = value
@@ -695,6 +727,7 @@ class Relation(BaseModel):
         validate_assignment=True,  # Validate on attribute assignment
         extra="allow",  # Allow extra fields for flexibility
         ignored_types=(RelationFlags, Role),  # Ignore RelationFlags and Role types
+        revalidate_instances='always',  # Revalidate on model_copy
     )
 
     # Internal metadata
@@ -767,9 +800,6 @@ class Relation(BaseModel):
 
             # Extract attribute type and cardinality/key/unique metadata
             field_info = extract_metadata(field_type)
-            base_type = (
-                _get_base_type_for_attribute(field_info.attr_type) if field_info.attr_type else None
-            )
 
             # Check if field type is a list annotation
             field_origin = get_origin(field_type)
@@ -825,58 +855,92 @@ class Relation(BaseModel):
 
                 owned_attrs[field_name] = ModelAttrInfo(typ=field_info.attr_type, flags=flags)
 
-                # Rewrite annotation to include base type for type checkers
-                # This ensures pyright understands:
-                # - position: Position → position: str | Position
-                # - tags: Min[2, Tag] → tags: list[str]
-                # - year: Optional[Year] → year: int | Year | None
-                if base_type:
-                    # Check cardinality to determine if we need a list
-                    is_multi = flags.card_max is None or (
-                        flags.card_max is not None and flags.card_max > 1
-                    )
-
-                    # Check if already Optional/Union with None
-                    origin = get_origin(field_type)
-                    from types import UnionType
-
-                    if origin is UnionType or str(origin) == "typing.Union":
-                        args = get_args(field_type)
-                        has_none = type(None) in args or None in args
-                        if has_none:
-                            # Already Optional
-                            if is_multi:
-                                # Optional list: list[int | Attribute] | None
-                                new_annotations[field_name] = (
-                                    list[base_type | field_info.attr_type] | None
-                                )
-                            else:
-                                # Optional single: int | Year | None
-                                new_annotations[field_name] = (
-                                    base_type | field_info.attr_type | None
-                                )
-                        else:
-                            # Union but not Optional
-                            if is_multi:
-                                new_annotations[field_name] = list[base_type | field_info.attr_type]
-                            else:
-                                new_annotations[field_name] = base_type | field_info.attr_type
-                    else:
-                        # Not a union
-                        if is_multi:
-                            # Multiple values: list[str | Attribute] (accept both raw values and attribute instances)
-                            new_annotations[field_name] = list[base_type | field_info.attr_type]
-                        else:
-                            # Single value: str | Position
-                            new_annotations[field_name] = base_type | field_info.attr_type
-                else:
-                    new_annotations[field_name] = field_type
+                # Keep annotation as-is - no need for unions since validators always return Attribute instances
+                # - position: Position → stays as Position
+                # - salary: Salary | None → stays as Salary | None
+                # - tags: list[Tag] → stays as list[Tag]
+                new_annotations[field_name] = field_type
             else:
                 new_annotations[field_name] = field_type
 
         # Update class annotations for Pydantic's benefit
         cls.__annotations__ = new_annotations
         cls._owned_attrs = owned_attrs
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _wrap_raw_values(cls, values, handler):
+        """Ensure all attribute fields are wrapped in Attribute instances.
+
+        This catches edge cases like default values and model_copy that bypass validators.
+        Uses 'wrap' mode to intercept all validation paths including model_copy.
+        """
+        # First, let Pydantic do its validation
+        instance = handler(values)
+
+        # Then wrap any raw values
+        owned_attrs = cls.get_owned_attributes()
+        for field_name, attr_info in owned_attrs.items():
+            value = getattr(instance, field_name, None)
+            if value is None:
+                continue
+
+            attr_class = attr_info.typ
+
+            # Check if it's a list (multi-value attribute)
+            if isinstance(value, list):
+                wrapped_list = []
+                for item in value:
+                    if not isinstance(item, attr_class):
+                        # Wrap raw value
+                        wrapped_list.append(attr_class(item))
+                    else:
+                        wrapped_list.append(item)
+                # Use object.__setattr__ to bypass validate_assignment and avoid recursion
+                object.__setattr__(instance, field_name, wrapped_list)
+            else:
+                # Single value
+                if not isinstance(value, attr_class):
+                    # Wrap raw value
+                    # Use object.__setattr__ to bypass validate_assignment and avoid recursion
+                    object.__setattr__(instance, field_name, attr_class(value))
+
+        return instance
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False):
+        """Override model_copy to ensure raw values are wrapped in Attribute instances.
+
+        Pydantic's model_copy bypasses validators even with revalidate_instances='always',
+        so we override it to force proper validation.
+        """
+        # Call parent model_copy
+        copied = super().model_copy(update=update, deep=deep)
+
+        # Force wrap any raw values in the update dict
+        if update:
+            owned_attrs = self.__class__.get_owned_attributes()
+            for field_name, new_value in update.items():
+                if field_name not in owned_attrs:
+                    continue
+
+                attr_info = owned_attrs[field_name]
+                attr_class = attr_info.typ
+
+                # Check if it's a list (multi-value attribute)
+                if isinstance(new_value, list):
+                    wrapped_list = []
+                    for item in new_value:
+                        if not isinstance(item, attr_class):
+                            wrapped_list.append(attr_class(item))
+                        else:
+                            wrapped_list.append(item)
+                    object.__setattr__(copied, field_name, wrapped_list)
+                else:
+                    # Single value
+                    if not isinstance(new_value, attr_class):
+                        object.__setattr__(copied, field_name, attr_class(new_value))
+
+        return copied
 
     @classmethod
     def get_type_name(cls) -> str:
@@ -916,23 +980,88 @@ class Relation(BaseModel):
             db = Database()
             db.connect()
 
-            # Old way
-            employment_mgr = RelationManager(db, Employment)
-            employment = employment_mgr.insert(
-                role_players={"employee": person, "employer": company},
-                attributes={"position": "Engineer"}
+            # Create typed relation instance
+            employment = Employment(
+                employee=person,
+                employer=company,
+                position=Position("Engineer")
             )
 
-            # New way - with full type safety!
-            employment = Employment.manager(db).insert(
-                role_players={"employee": person, "employer": company},
-                attributes={"position": "Engineer"}
-            )
+            # Insert using manager - with full type safety!
+            Employment.manager(db).insert(employment)
             # employment is inferred as Employment type by type checkers
         """
         from type_bridge.crud import RelationManager
 
         return RelationManager(db, cls)
+
+    def to_insert_query(self, var: str = "$r") -> str:
+        """Generate TypeQL insert query for this relation instance.
+
+        Args:
+            var: Variable name to use
+
+        Returns:
+            TypeQL insert pattern for the relation
+
+        Example:
+            >>> employment = Employment(employee=alice, employer=tech_corp, position="Engineer")
+            >>> employment.to_insert_query()
+            '$r (employee: $alice, employer: $tech_corp) isa employment, has position "Engineer"'
+        """
+        type_name = self.get_type_name()
+
+        # Build role players
+        role_parts = []
+        for role_name, role in self.__class__._roles.items():
+            # Get the entity from the instance
+            entity = self.__dict__.get(role_name)
+            if entity is not None:
+                # Use the entity's variable or IID
+                if hasattr(entity, "_iid") and entity._iid:
+                    # Use existing entity's IID
+                    role_parts.append(f"{role.role_name}: ${role_name}")
+                else:
+                    # New entity - use a variable
+                    role_parts.append(f"{role.role_name}: ${role_name}")
+
+        # Start with relation pattern
+        relation_pattern = f"{var} ({', '.join(role_parts)}) isa {type_name}"
+        parts = [relation_pattern]
+
+        # Add attribute ownerships
+        for field_name, attr_info in self._owned_attrs.items():
+            value = getattr(self, field_name, None)
+            if value is not None:
+                attr_class = attr_info.typ
+                attr_name = attr_class.get_attribute_name()
+
+                # Handle lists (multi-value attributes)
+                if isinstance(value, list):
+                    for item in value:
+                        parts.append(f"has {attr_name} {self._format_value(item)}")
+                else:
+                    parts.append(f"has {attr_name} {self._format_value(value)}")
+
+        return ", ".join(parts)
+
+    @staticmethod
+    def _format_value(value: Any) -> str:
+        """Format a Python value for TypeQL."""
+        # Extract value from Attribute instances
+        if isinstance(value, Attribute):
+            value = value.value
+
+        if isinstance(value, str):
+            return f'"{value}"'
+        elif isinstance(value, bool):
+            return "true" if value else "false"
+        elif isinstance(value, (int, float)):
+            return str(value)
+        elif isinstance(value, datetime_type):
+            return f'"{value.isoformat()}"'
+        else:
+            return str(value)
 
     def insert(self: R, db: Database) -> R:
         """Insert this relation instance into the database.
@@ -954,28 +1083,9 @@ class Relation(BaseModel):
             )
             employment.insert(db)
         """
-        # Extract role players from instance
-        role_players = {}
-        for role_name, role in self.__class__._roles.items():
-            # Get the value from the instance's __dict__
-            value = self.__dict__.get(role_name)
-            if value is not None:
-                role_players[role_name] = value
-
-        # Extract attributes from instance
-        attributes = {}
-        for field_name in self.__class__._owned_attrs:
-            if hasattr(self, field_name):
-                value = getattr(self, field_name)
-                # Extract raw value from Attribute instances
-                if hasattr(value, 'value'):
-                    attributes[field_name] = value.value
-                else:
-                    attributes[field_name] = value
-
         # Use manager to insert
         manager = self.__class__.manager(db)
-        manager.insert(role_players=role_players, attributes=attributes)
+        manager.insert(self)
         return self
 
     @classmethod
@@ -1052,14 +1162,14 @@ class Relation(BaseModel):
         for role_name, role in self._roles.items():
             player = getattr(self, role_name, None)
             # Only show role players that are actual entity instances (have _owned_attrs)
-            if player is not None and hasattr(player, '_owned_attrs'):
+            if player is not None and hasattr(player, "_owned_attrs"):
                 # Get a simple representation of the player (their key attribute)
                 player_str = None
                 for field_name, attr_info in player._owned_attrs.items():
                     if attr_info.flags.is_key:
                         key_value = getattr(player, field_name, None)
                         if key_value is not None:
-                            if hasattr(key_value, 'value'):
+                            if hasattr(key_value, "value"):
                                 player_str = str(key_value.value)
                             else:
                                 player_str = str(key_value)
@@ -1079,7 +1189,7 @@ class Relation(BaseModel):
                 continue
 
             # Extract actual value from Attribute instance
-            if hasattr(value, 'value'):
+            if hasattr(value, "value"):
                 display_value = value.value
             else:
                 display_value = value

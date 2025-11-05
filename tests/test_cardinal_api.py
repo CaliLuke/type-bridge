@@ -103,9 +103,15 @@ def test_cardinal_instance_creation():
         flags = EntityFlags(type_name="person")
         tags: list[Tag] = Flag(Card(2, 5))
 
-    # Should accept lists
+    # Should accept lists (values will be wrapped in Tag instances)
     person = Person(tags=["python", "rust", "go"]) # pyright: ignore
-    assert person.tags == ["python", "rust", "go"]
+    # Strict type safety: list items are wrapped Tag instances
+    assert person.tags != ["python", "rust", "go"]  # Not equal to raw list
+    assert person.tags == [Tag("python"), Tag("rust"), Tag("go")]  # Equal to wrapped list
+    assert len(person.tags) == 3
+    assert person.tags[0].value == "python"
+    assert all(isinstance(tag, Tag) for tag in person.tags)
+    assert all(not isinstance(tag, str) for tag in person.tags)
 
 
 def test_cardinal_insert_query():

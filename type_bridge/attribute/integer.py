@@ -178,11 +178,11 @@ class Integer(Attribute):
                 ),
             )
 
-        # Default: accept int or attribute instance, serialize to int
-        def validate_long(value: Any) -> int:
+        # Default: accept int or attribute instance, always return attribute instance
+        def validate_long(value: Any) -> "Integer":
             if isinstance(value, cls):
-                return value._value if value._value is not None else 0
-            return int(value)
+                return value  # Return attribute instance as-is
+            return cls(int(value))  # Wrap raw int in attribute instance
 
         return core_schema.with_info_plain_validator_function(
             lambda v, _: validate_long(v),

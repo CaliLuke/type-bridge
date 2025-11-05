@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Any, TypeVar
 
+from type_bridge.attribute import AttributeFlags
 from type_bridge.models import Entity, Relation
 from type_bridge.query import Query, QueryBuilder
 from type_bridge.session import Database
@@ -27,23 +28,31 @@ class EntityManager[E: Entity]:
         self.db = db
         self.model_class = model_class
 
-    def insert(self, **attributes) -> E:
-        """Insert a new entity into the database.
+    def insert(self, entity: E) -> E:
+        """Insert an entity instance into the database.
 
         Args:
-            attributes: Entity attributes
+            entity: Entity instance to insert
 
         Returns:
-            Inserted entity instance
+            The inserted entity instance
+
+        Example:
+            # Create typed entity instance with wrapped attributes
+            person = Person(
+                name=Name("Alice"),
+                age=Age(30),
+                email=Email("alice@example.com")
+            )
+            Person.manager(db).insert(person)
         """
-        instance = self.model_class(**attributes)
-        query = QueryBuilder.insert_entity(instance)
+        query = QueryBuilder.insert_entity(entity)
 
         with self.db.transaction("write") as tx:
             tx.execute(query.build())
             tx.commit()
 
-        return instance
+        return entity
 
     def insert_many(self, entities: list[E]) -> list[E]:
         """Insert multiple entities into the database in a single transaction.
@@ -155,6 +164,169 @@ class EntityManager[E: Entity]:
 
         return len(results) if results else 0
 
+    def update(self, entity: E) -> E:
+        """Update an entity in the database based on its current state.
+
+        Reads all attribute values from the entity instance and persists them to the database.
+        Uses key attributes to identify the entity.
+
+        For single-value attributes (@card(0..1) or @card(1..1)), uses TypeQL update clause.
+        For multi-value attributes (e.g., @card(0..5), @card(2..)), deletes old values
+        and inserts new ones.
+
+        Args:
+            entity: The entity instance to update (must have key attributes set)
+
+        Returns:
+            The same entity instance
+
+        Example:
+            # Fetch entity
+            alice = person_manager.get(name="Alice")[0]
+
+            # Modify attributes directly
+            alice.age = 31
+            alice.tags = ["python", "typedb", "ai"]
+
+            # Update in database
+            person_manager.update(alice)
+        """
+        # Get owned attributes to determine cardinality
+        owned_attrs = self.model_class.get_owned_attributes()
+
+        # Extract key attributes from entity for matching
+        match_filters = {}
+        for field_name, attr_info in owned_attrs.items():
+            if attr_info.flags.is_key:
+                key_value = getattr(entity, field_name, None)
+                if key_value is None:
+                    msg = f"Key attribute '{field_name}' is required for update"
+                    raise ValueError(msg)
+                # Extract value from Attribute instance if needed
+                if hasattr(key_value, "value"):
+                    key_value = key_value.value
+                attr_name = attr_info.typ.get_attribute_name()
+                match_filters[attr_name] = key_value
+
+        if not match_filters:
+            msg = "Entity must have at least one @key attribute to be updated"
+            raise ValueError(msg)
+
+        # Separate single-value and multi-value updates from entity state
+        single_value_updates = {}
+        multi_value_updates = {}
+
+        for field_name, attr_info in owned_attrs.items():
+            # Skip key attributes (they're used for matching)
+            if attr_info.flags.is_key:
+                continue
+
+            attr_class = attr_info.typ
+            attr_name = attr_class.get_attribute_name()
+            flags = attr_info.flags
+
+            # Get current value from entity
+            current_value = getattr(entity, field_name, None)
+
+            # Extract raw values from Attribute instances
+            if current_value is not None:
+                if isinstance(current_value, list):
+                    # Multi-value: extract value from each Attribute in list
+                    raw_values = []
+                    for item in current_value:
+                        if hasattr(item, "value"):
+                            raw_values.append(item.value)
+                        else:
+                            raw_values.append(item)
+                    current_value = raw_values
+                elif hasattr(current_value, "value"):
+                    # Single-value: extract value from Attribute
+                    current_value = current_value.value
+
+            # Determine if multi-value
+            is_multi_value = self._is_multi_value_attribute(flags)
+
+            if is_multi_value:
+                # Multi-value: store as list (even if empty)
+                if current_value is None:
+                    current_value = []
+                multi_value_updates[attr_name] = current_value
+            else:
+                # Single-value: skip None values for optional attributes
+                if current_value is not None:
+                    single_value_updates[attr_name] = current_value
+
+        # Build TypeQL query
+        query_parts = []
+
+        # Match clause using key attributes
+        match_statements = []
+        entity_match_parts = [f"$e isa {self.model_class.get_type_name()}"]
+        for attr_name, attr_value in match_filters.items():
+            formatted_value = self._format_value(attr_value)
+            entity_match_parts.append(f"has {attr_name} {formatted_value}")
+        match_statements.append(", ".join(entity_match_parts) + ";")
+
+        # Add match statements to bind multi-value attributes for deletion
+        if multi_value_updates:
+            for attr_name in multi_value_updates:
+                match_statements.append(f"$e has {attr_name} ${attr_name};")
+
+        match_clause = "\n".join(match_statements)
+        query_parts.append(f"match\n{match_clause}")
+
+        # Delete clause (for multi-value attributes)
+        if multi_value_updates:
+            delete_parts = []
+            for attr_name in multi_value_updates:
+                delete_parts.append(f"${attr_name} of $e;")
+            delete_clause = "\n".join(delete_parts)
+            query_parts.append(f"delete\n{delete_clause}")
+
+        # Insert clause (for multi-value attributes)
+        if multi_value_updates:
+            insert_parts = []
+            for attr_name, values in multi_value_updates.items():
+                for value in values:
+                    formatted_value = self._format_value(value)
+                    insert_parts.append(f"$e has {attr_name} {formatted_value};")
+            insert_clause = "\n".join(insert_parts)
+            query_parts.append(f"insert\n{insert_clause}")
+
+        # Update clause (for single-value attributes)
+        if single_value_updates:
+            update_parts = []
+            for attr_name, value in single_value_updates.items():
+                formatted_value = self._format_value(value)
+                update_parts.append(f"$e has {attr_name} {formatted_value};")
+            update_clause = "\n".join(update_parts)
+            query_parts.append(f"update\n{update_clause}")
+
+        # Combine and execute
+        full_query = "\n".join(query_parts)
+
+        with self.db.transaction("write") as tx:
+            tx.execute(full_query)
+            tx.commit()
+
+        return entity
+
+    def _is_multi_value_attribute(self, flags: AttributeFlags) -> bool:
+        """Check if attribute is multi-value based on cardinality.
+
+        Args:
+            flags: AttributeFlags instance
+
+        Returns:
+            True if multi-value (card_max is None or > 1), False if single-value
+        """
+        # Single-value: card_max == 1 (including 0..1 and 1..1)
+        # Multi-value: card_max is None (unbounded) or > 1
+        if flags.card_max is None:
+            # Unbounded means multi-value
+            return True
+        return flags.card_max > 1
+
     def _extract_attributes(self, result: dict[str, Any]) -> dict[str, Any]:
         """Extract attributes from query result.
 
@@ -173,8 +345,9 @@ class EntityManager[E: Entity]:
             if attr_name in result:
                 attrs[field_name] = result[attr_name]
             else:
-                # For optional fields, explicitly set to None if not present
-                attrs[field_name] = None
+                # For multi-value attributes, use empty list; for optional, use None
+                is_multi_value = self._is_multi_value_attribute(attr_info.flags)
+                attrs[field_name] = [] if is_multi_value else None
         return attrs
 
     @staticmethod
@@ -307,97 +480,113 @@ class RelationManager[R: Relation]:
         self.db = db
         self.model_class = model_class
 
-    def insert(self, role_players: dict[str, Any], attributes: dict[str, Any] | None = None) -> R:
-        """Insert a new relation into the database.
+    def insert(self, relation: R) -> R:
+        """Insert a typed relation instance into the database.
 
         Args:
-            role_players: Dictionary mapping role names to player entities (Entity instances)
-            attributes: Optional dictionary of relation attributes
+            relation: Typed relation instance with role players and attributes
 
         Returns:
-            Inserted relation instance
+            The inserted relation instance
 
         Example:
-            employment_manager = RelationManager(db, Employment)
-            employment = employment_manager.insert(
-                role_players={"employee": person, "employer": company},
-                attributes={"position": "Engineer", "salary": 100000}
+            # Typed construction - full IDE support and type checking
+            employment = Employment(
+                employee=person,
+                employer=company,
+                position="Engineer",
+                salary=100000
             )
+            employment_manager.insert(employment)
         """
-        # Build the query
-        query = Query()
+        # Extract role players from relation instance
+        roles = self.model_class._roles
+        role_players = {}
+        for role_name, role in roles.items():
+            entity = relation.__dict__.get(role_name)
+            if entity is not None:
+                role_players[role_name] = entity
 
-        # First, we need to match the role players by their key attributes
-        match_clauses = []
-        role_var_map = {}
+        # Build match clause for role players
+        match_parts = []
+        for role_name, entity in role_players.items():
+            # Get key attributes from the entity
+            entity_type_name = entity.__class__.get_type_name()
+            key_attrs = {
+                field_name: attr_info
+                for field_name, attr_info in entity.__class__.get_owned_attributes().items()
+                if attr_info.flags.is_key
+            }
 
-        for role_attr_name, player_entity in role_players.items():
-            # Get the role from the model class
-            role = self.model_class._roles.get(role_attr_name)
-            if not role:
-                raise ValueError(f"Unknown role: {role_attr_name}")
-
-            # Create a variable for this player
-            player_var = f"$player_{role_attr_name}"
-            role_var_map[role_attr_name] = (player_var, role.role_name)
-
-            # Match the player by their key attributes
-            player_type = player_entity.get_type_name()
-            owned_attrs = player_entity.get_owned_attributes()
-
-            # Find key attributes to match
-            match_parts = [f"{player_var} isa {player_type}"]
-            for field_name, attr_info in owned_attrs.items():
+            # Match entity by its key attribute
+            for field_name, attr_info in key_attrs.items():
+                value = getattr(entity, field_name)
                 attr_class = attr_info.typ
-                flags = attr_info.flags
-                if flags.is_key:
-                    value = getattr(player_entity, field_name, None)
-                    if value is not None:
-                        attr_name = attr_class.get_attribute_name()
-                        formatted_value = self._format_value(value)
-                        match_parts.append(f"has {attr_name} {formatted_value}")
+                attr_name = attr_class.get_attribute_name()
+                formatted_value = self._format_value(value)
+                match_parts.append(f"${role_name} isa {entity_type_name}, has {attr_name} {formatted_value}")
+                break  # Only use first key attribute
 
-            match_clauses.append(", ".join(match_parts))
+        # Build insert clause
+        relation_type_name = self.model_class.get_type_name()
+        role_parts = [f"{roles[role_name].role_name}: ${role_name}" for role_name in role_players.keys()]
+        relation_pattern = f"({', '.join(role_parts)}) isa {relation_type_name}"
 
-        # Add all match clauses
-        for match_clause in match_clauses:
-            query.match(match_clause)
+        # Add attributes
+        attr_parts = []
+        for field_name, attr_info in self.model_class.get_owned_attributes().items():
+            value = getattr(relation, field_name, None)
+            if value is not None:
+                attr_class = attr_info.typ
+                attr_name = attr_class.get_attribute_name()
 
-        # Build insert clause for the relation
-        # TypeQL 3.x syntax: (role: $player, ...) isa relation_type (NO VARIABLE!)
-        role_players_str = ', '.join([f'{role_name}: {var}' for var, role_name in role_var_map.values()])
-        insert_pattern = f"({role_players_str}) isa {self.model_class.get_type_name()}"
+                # Handle lists (multi-value attributes)
+                if isinstance(value, list):
+                    for item in value:
+                        # Extract value from Attribute instance
+                        if hasattr(item, 'value'):
+                            item = item.value
+                        # Format for TypeQL
+                        if isinstance(item, str):
+                            formatted = f'"{item}"'
+                        elif isinstance(item, bool):
+                            formatted = "true" if item else "false"
+                        elif isinstance(item, (int, float)):
+                            formatted = str(item)
+                        else:
+                            formatted = str(item)
+                        attr_parts.append(f"has {attr_name} {formatted}")
+                else:
+                    # Extract value from Attribute instance
+                    if hasattr(value, 'value'):
+                        value = value.value
+                    # Format for TypeQL
+                    if isinstance(value, str):
+                        formatted = f'"{value}"'
+                    elif isinstance(value, bool):
+                        formatted = "true" if value else "false"
+                    elif isinstance(value, (int, float)):
+                        formatted = str(value)
+                    else:
+                        formatted = str(value)
+                    attr_parts.append(f"has {attr_name} {formatted}")
 
-        # Add attributes if provided
-        if attributes:
-            attr_parts = []
-            for field_name, attr_value in attributes.items():
-                # Skip None values for optional attributes
-                if attr_value is None:
-                    continue
-                # Get the attribute class from the model to get the correct TypeQL name
-                owned_attrs = self.model_class.get_owned_attributes()
-                if field_name in owned_attrs:
-                    attr_info = owned_attrs[field_name]
-                    typeql_attr_name = attr_info.typ.get_attribute_name()
-                    formatted_value = self._format_value(attr_value)
-                    attr_parts.append(f"has {typeql_attr_name} {formatted_value}")
-            insert_pattern += ", " + ", ".join(attr_parts)
+        # Combine relation pattern with attributes
+        if attr_parts:
+            insert_pattern = relation_pattern + ", " + ", ".join(attr_parts)
+        else:
+            insert_pattern = relation_pattern
 
-        query.insert(insert_pattern)
+        # Build full query
+        match_clause = "match\n" + ";\n".join(match_parts) + ";"
+        insert_clause = "insert\n" + insert_pattern + ";"
+        query = match_clause + "\n" + insert_clause
 
-        # Execute the query
-        query_str = query.build()
         with self.db.transaction("write") as tx:
-            tx.execute(query_str)
+            tx.execute(query)
             tx.commit()
 
-        # Create and return instance
-        # Note: Don't pass role_players to __init__ as they are ClassVar fields
-        # Only pass attributes
-        instance_kwargs = attributes if attributes else {}
-
-        return self.model_class(**instance_kwargs)
+        return relation
 
     def insert_many(self, relations: list[R]) -> list[R]:
         """Insert multiple relations into the database in a single transaction.
@@ -499,7 +688,9 @@ class RelationManager[R: Relation]:
                 role_var_map[role_name] = (player_var, role.role_name)
 
             # Build insert pattern for this relation
-            role_players_str = ', '.join([f'{role_name}: {var}' for var, role_name in role_var_map.values()])
+            role_players_str = ", ".join(
+                [f"{role_name}: {var}" for var, role_name in role_var_map.values()]
+            )
             insert_pattern = f"({role_players_str}) isa {self.model_class.get_type_name()}"
 
             # Extract and add attributes from relation instance
@@ -511,7 +702,7 @@ class RelationManager[R: Relation]:
                         continue
 
                     # Extract raw value from Attribute instances
-                    if hasattr(attr_value, 'value'):
+                    if hasattr(attr_value, "value"):
                         attr_value = attr_value.value
 
                     owned_attrs = self.model_class.get_owned_attributes()
@@ -623,7 +814,7 @@ class RelationManager[R: Relation]:
                     if key_value is not None:
                         attr_name = attr_info.typ.get_attribute_name()
                         # Extract value from Attribute instance if needed
-                        if hasattr(key_value, 'value'):
+                        if hasattr(key_value, "value"):
                             key_value = key_value.value
                         formatted_value = self._format_value(key_value)
                         match_clauses.append(f"{role_var} has {attr_name} {formatted_value}")
@@ -690,3 +881,16 @@ class RelationManager[R: Relation]:
             relations.append(relation)
 
         return relations
+
+    def all(self) -> list[R]:
+        """Get all relations of this type.
+
+        Syntactic sugar for get() with no filters.
+
+        Returns:
+            List of all relations
+
+        Example:
+            all_employments = Employment.manager(db).all()
+        """
+        return self.get()

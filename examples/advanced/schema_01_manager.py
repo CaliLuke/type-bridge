@@ -148,57 +148,66 @@ def main() -> None:
     # Step 3: Insert entities using EntityManager
     print("\n3. Inserting entities using EntityManager...")
 
-    # Insert persons
-    alice = Person.manager(db).insert(
-        name="Alice Johnson", email="alice@example.com", age=30, active=True
+    # Insert persons - direct instantiation with wrapped types
+    alice = Person(
+        name=Name("Alice Johnson"),
+        email=Email("alice@example.com"),
+        age=Age(30),
+        active=Active(True),
     )
-    print(
-        f"   ✓ Inserted person: {alice.name.value if hasattr(alice.name, 'value') else alice.name}"
+    Person.manager(db).insert(alice)
+    print(f"   ✓ Inserted person: {alice.name.value}")
+
+    bob = Person(
+        name=Name("Bob Smith"),
+        email=Email("bob@example.com"),
+        age=Age(35),
+        active=Active(True),
     )
+    Person.manager(db).insert(bob)
+    print(f"   ✓ Inserted person: {bob.name.value}")
 
-    bob = Person.manager(db).insert(name="Bob Smith", email="bob@example.com", age=35, active=True)
-    print(f"   ✓ Inserted person: {bob.name.value if hasattr(bob.name, 'value') else bob.name}")
-
-    charlie = Person.manager(db).insert(
-        name="Charlie Brown",
-        email="charlie@example.com",
+    charlie = Person(
+        name=Name("Charlie Brown"),
+        email=Email("charlie@example.com"),
         age=None,  # Optional field
-        active=False,
+        active=Active(False),
     )
-    print(
-        f"   ✓ Inserted person: {charlie.name.value if hasattr(charlie.name, 'value') else charlie.name} (inactive, no age)"
-    )
+    Person.manager(db).insert(charlie)
+    print(f"   ✓ Inserted person: {charlie.name.value} (inactive, no age)")
 
-    # Insert companies
-    tech_corp = Company.manager(db).insert(
-        name="TechCorp", founded=2010, industry=["Technology", "Software", "AI"]
+    # Insert companies - direct instantiation with wrapped types
+    tech_corp = Company(
+        name=Name("TechCorp"),
+        founded=Founded(2010),
+        industry=[Industry("Technology"), Industry("Software"), Industry("AI")],
     )
-    print(
-        f"   ✓ Inserted company: {tech_corp.name.value if hasattr(tech_corp.name, 'value') else tech_corp.name}"
-    )
+    Company.manager(db).insert(tech_corp)
+    print(f"   ✓ Inserted company: {tech_corp.name.value}")
 
-    startup_co = Company.manager(db).insert(
-        name="StartupCo", founded=2020, industry=["Technology", "Startup"]
+    startup_co = Company(
+        name=Name("StartupCo"),
+        founded=Founded(2020),
+        industry=[Industry("Technology"), Industry("Startup")],
     )
-    print(
-        f"   ✓ Inserted company: {startup_co.name.value if hasattr(startup_co.name, 'value') else startup_co.name}"
-    )
+    Company.manager(db).insert(startup_co)
+    print(f"   ✓ Inserted company: {startup_co.name.value}")
 
     # Step 4: Insert relations using RelationManager
     print("\n4. Inserting relations using RelationManager...")
 
     from datetime import datetime
 
-    # Alice works at TechCorp
-    employment1 = Employment.manager(db).insert(
-        role_players={"employee": alice, "employer": tech_corp},
-        attributes={
-            "position": "Senior Software Engineer",
-            "salary": 120000,
-            "start_date": datetime(2020, 1, 15),  # Use Python field name
-            "active": True,
-        },
+    # Alice works at TechCorp - using typed instance
+    employment1 = Employment(
+        employee=alice,
+        employer=tech_corp,
+        position=Position("Senior Software Engineer"),
+        salary=Salary(120000),
+        start_date=StartDate(datetime(2020, 1, 15)),
+        active=Active(True),
     )
+    Employment.manager(db).insert(employment1)
     print("   ✓ Created employment: Alice → TechCorp as Senior Software Engineer")
 
     # Bob works at TechCorp - using new instance-based insert
@@ -213,16 +222,16 @@ def main() -> None:
     employment2.insert(db)
     print("   ✓ Created employment: Bob → TechCorp as Product Manager")
 
-    # Charlie works at StartupCo (no salary disclosed)
-    employment3 = Employment.manager(db).insert(
-        role_players={"employee": charlie, "employer": startup_co},
-        attributes={
-            "position": "Founder",
-            "salary": None,  # Optional field
-            "start_date": datetime(2020, 3, 1),  # Use Python field name
-            "active": True,
-        },
+    # Charlie works at StartupCo (no salary disclosed) - using typed instance
+    employment3 = Employment(
+        employee=charlie,
+        employer=startup_co,
+        position=Position("Founder"),
+        salary=None,  # Optional field
+        start_date=StartDate(datetime(2020, 3, 1)),
+        active=Active(True),
     )
+    Employment.manager(db).insert(employment3)
     print("   ✓ Created employment: Charlie → StartupCo as Founder (no salary)")
 
     # Step 5: Query data to verify

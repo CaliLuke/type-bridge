@@ -88,18 +88,22 @@ schema_manager = SchemaManager(db)
 schema_manager.register(Person, Company, Employment)
 schema_manager.sync_schema()
 
-# Insert entities
-alice = Person.manager(db).insert(
-    name="Alice",
-    age=30,
-    email="alice@example.com"
+# Insert entities - use typed instances
+alice = Person(
+    name=Name("Alice"),
+    age=Age(30),
+    email=Email("alice@example.com")
 )
+Person.manager(db).insert(alice)
 
-# Insert relations
-employment = Employment.manager(db).insert(
-    role_players={"employee": alice, "employer": techcorp},
-    attributes={"position": "Engineer", "salary": 100000}
+# Insert relations - use typed instances
+employment = Employment(
+    employee=alice,
+    employer=techcorp,
+    position=Position("Engineer"),
+    salary=Salary(100000)
 )
+Employment.manager(db).insert(employment)
 ```
 
 ### 5. Cardinality Constraints
@@ -176,8 +180,7 @@ alice_copy = alice.model_copy(update={"age": Age(31)})
 ## Running Examples
 
 ```bash
-uv run python examples/basic_usage.py
-uv run python examples/pydantic_features.py
+uv run python examples/basic/crud.py
 ```
 
 ## Running Tests
@@ -189,7 +192,7 @@ uv run pytest tests/ -v
 ## Requirements
 
 - Python 3.13+
-- TypeDB 2.x or 3.x
+- TypeDB 3.x
 - typedb-driver==3.5.5
 
 ## License

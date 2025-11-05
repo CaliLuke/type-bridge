@@ -113,36 +113,35 @@ def demonstrate_type_safety():
     print("\n1. Creating entities with full type inference:")
     print("-" * 70)
 
-    # The type checker knows that person is of type Person
-    person = Person.manager(db).insert(
-        name="Alice Johnson",
-        age=30,
-        email="alice@example.com"
+    # Direct instantiation: use wrapped types (type system enforces this)
+    person = Person(
+        name=Name("Alice Johnson"),
+        age=Age(30),
+        email=Email("alice@example.com")
     )
-    print(f"✓ Created person: {person.name.value if hasattr(person.name, 'value') else person.name}")
+    Person.manager(db).insert(person)
+    print(f"✓ Created person: {person.name.value}")
     # IDE will autocomplete: person.name, person.age, person.email
 
-    # The type checker knows that company is of type Company
-    company = Company.manager(db).insert(name="TechCorp")
-    print(f"✓ Created company: {company.name.value if hasattr(company.name, 'value') else company.name}")
+    # Direct instantiation with wrapped types
+    company = Company(name=Name("TechCorp"))
+    Company.manager(db).insert(company)
+    print(f"✓ Created company: {company.name.value}")
     # IDE will autocomplete: company.name
 
     # 2. Type-safe relation creation
     print("\n2. Creating relations with full type inference:")
     print("-" * 70)
 
-    # The type checker knows that employment is of type Employment
-    employment = Employment.manager(db).insert(
-        role_players={
-            "employee": person,
-            "employer": company
-        },
-        attributes={
-            "position": "Software Engineer",
-            "salary": 100000
-        }
+    # Direct instantiation: use wrapped types (type system enforces this)
+    employment = Employment(
+        employee=person,
+        employer=company,
+        position=Position("Software Engineer"),
+        salary=Salary(100000)
     )
-    print(f"✓ Created employment: {employment.position.value if hasattr(employment.position, 'value') else employment.position}")
+    Employment.manager(db).insert(employment)
+    print(f"✓ Created employment: {employment.position.value}")
     # IDE will autocomplete: employment.position, employment.salary
 
     # 3. Type-safe manager instance
@@ -151,13 +150,14 @@ def demonstrate_type_safety():
 
     # Manager is typed as EntityManager[Person]
     person_manager = Person.manager(db)
-    # Type checker knows person_manager.insert() returns Person
-    another_person = person_manager.insert(
-        name="Bob Smith",
-        age=28,
-        email="bob@example.com"
+    # Create typed instance with wrapped types
+    another_person = Person(
+        name=Name("Bob Smith"),
+        age=Age(28),
+        email=Email("bob@example.com")
     )
-    print(f"✓ Created another person: {another_person.name.value if hasattr(another_person.name, 'value') else another_person.name}")
+    person_manager.insert(another_person)
+    print(f"✓ Created another person: {another_person.name.value}")
 
     # 4. Benefits summary
     print("\n" + "=" * 70)
