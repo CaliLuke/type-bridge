@@ -189,6 +189,28 @@ def _get_base_type_for_attribute(attr_cls: type[Attribute]) -> type | None:
     return None
 
 
+# TypeDB built-in type names that cannot be used
+TYPEDB_BUILTIN_TYPES = {"thing", "entity", "relation", "attribute"}
+
+
+def _validate_type_name(type_name: str, class_name: str) -> None:
+    """Validate that a type name doesn't conflict with TypeDB built-ins.
+
+    Args:
+        type_name: The type name to validate
+        class_name: The Python class name (for error messages)
+
+    Raises:
+        ValueError: If type name conflicts with a TypeDB built-in type
+    """
+    if type_name.lower() in TYPEDB_BUILTIN_TYPES:
+        raise ValueError(
+            f"Type name '{type_name}' for class '{class_name}' conflicts with TypeDB built-in type. "
+            f"Built-in types are: {', '.join(sorted(TYPEDB_BUILTIN_TYPES))}. "
+            f"Please use a different type_name in EntityFlags/RelationFlags or rename your class."
+        )
+
+
 @dataclass
 class ModelAttrInfo:
     typ: type[Attribute]
@@ -264,6 +286,12 @@ class Entity(BaseModel):
                     break
             else:
                 cls._flags = EntityFlags()
+
+        # Validate type name doesn't conflict with TypeDB built-ins
+        # (skip validation for base classes that won't appear in schema)
+        if not cls._flags.base:
+            type_name = cls._flags.type_name or cls.__name__.lower()
+            _validate_type_name(type_name, cls.__name__)
 
         # Extract owned attributes from type hints
         owned_attrs: dict[str, ModelAttrInfo] = {}
@@ -438,13 +466,20 @@ class Entity(BaseModel):
 
     @classmethod
     def get_supertype(cls) -> str | None:
-        """Get the supertype from Python inheritance.
+        """Get the supertype from Python inheritance, skipping base classes.
+
+        Base classes (with base=True) are Python-only and don't appear in TypeDB schema.
+        This method skips them when determining the TypeDB supertype.
 
         Returns:
             Type name of the parent Entity class, or None if direct Entity subclass
         """
         for base in cls.__bases__:
             if base is not Entity and issubclass(base, Entity):
+                # Skip base classes - they don't appear in TypeDB schema
+                if base.is_base():
+                    # Recursively find the first non-base parent
+                    return base.get_supertype()
                 return base.get_type_name()
         return None
 
@@ -452,6 +487,11 @@ class Entity(BaseModel):
     def is_abstract(cls) -> bool:
         """Check if this is an abstract entity."""
         return cls._flags.abstract
+
+    @classmethod
+    def is_base(cls) -> bool:
+        """Check if this is a Python base class (not in TypeDB schema)."""
+        return cls._flags.base
 
     @classmethod
     def get_owned_attributes(cls) -> dict[str, ModelAttrInfo]:
@@ -509,12 +549,16 @@ class Entity(BaseModel):
         return self
 
     @classmethod
-    def to_schema_definition(cls) -> str:
+    def to_schema_definition(cls) -> str | None:
         """Generate TypeQL schema definition for this entity.
 
         Returns:
-            TypeQL schema definition string
+            TypeQL schema definition string, or None if this is a base class
         """
+        # Base classes don't appear in TypeDB schema
+        if cls.is_base():
+            return None
+
         type_name = cls.get_type_name()
         lines = []
 
@@ -756,6 +800,12 @@ class Relation(BaseModel):
             else:
                 cls._flags = RelationFlags()
 
+        # Validate type name doesn't conflict with TypeDB built-ins
+        # (skip validation for base classes that won't appear in schema)
+        if not cls._flags.base:
+            type_name = cls._flags.type_name or cls.__name__.lower()
+            _validate_type_name(type_name, cls.__name__)
+
         # Collect roles from type hints
         roles = {}
 
@@ -949,13 +999,20 @@ class Relation(BaseModel):
 
     @classmethod
     def get_supertype(cls) -> str | None:
-        """Get the supertype from Python inheritance.
+        """Get the supertype from Python inheritance, skipping base classes.
+
+        Base classes (with base=True) are Python-only and don't appear in TypeDB schema.
+        This method skips them when determining the TypeDB supertype.
 
         Returns:
             Type name of the parent Relation class, or None if direct Relation subclass
         """
         for base in cls.__bases__:
             if base is not Relation and issubclass(base, Relation):
+                # Skip base classes - they don't appear in TypeDB schema
+                if base.is_base():
+                    # Recursively find the first non-base parent
+                    return base.get_supertype()
                 return base.get_type_name()
         return None
 
@@ -963,6 +1020,11 @@ class Relation(BaseModel):
     def is_abstract(cls) -> bool:
         """Check if this is an abstract relation."""
         return cls._flags.abstract
+
+    @classmethod
+    def is_base(cls) -> bool:
+        """Check if this is a Python base class (not in TypeDB schema)."""
+        return cls._flags.base
 
     @classmethod
     def manager(cls: type[R], db: Any) -> RelationManager[R]:
@@ -1098,12 +1160,16 @@ class Relation(BaseModel):
         return cls._owned_attrs.copy()
 
     @classmethod
-    def to_schema_definition(cls) -> str:
+    def to_schema_definition(cls) -> str | None:
         """Generate TypeQL schema definition for this relation.
 
         Returns:
-            TypeQL schema definition string
+            TypeQL schema definition string, or None if this is a base class
         """
+        # Base classes don't appear in TypeDB schema
+        if cls.is_base():
+            return None
+
         type_name = cls.get_type_name()
         lines = []
 

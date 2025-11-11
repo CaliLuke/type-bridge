@@ -3,6 +3,27 @@
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
+# TypeDB built-in type names that cannot be used for attributes
+TYPEDB_BUILTIN_TYPES = {"thing", "entity", "relation", "attribute"}
+
+
+def _validate_attribute_name(attr_name: str, class_name: str) -> None:
+    """Validate that an attribute name doesn't conflict with TypeDB built-ins.
+
+    Args:
+        attr_name: The attribute name to validate
+        class_name: The Python class name (for error messages)
+
+    Raises:
+        ValueError: If attribute name conflicts with a TypeDB built-in type
+    """
+    if attr_name.lower() in TYPEDB_BUILTIN_TYPES:
+        raise ValueError(
+            f"Attribute name '{attr_name}' for class '{class_name}' conflicts with TypeDB built-in type. "
+            f"Built-in types are: {', '.join(sorted(TYPEDB_BUILTIN_TYPES))}. "
+            f"Please rename your attribute class to avoid this conflict."
+        )
+
 
 class Attribute(ABC):
     """Base class for TypeDB attributes.
@@ -56,6 +77,9 @@ class Attribute(ABC):
         # Always set the attribute name for each new subclass (don't inherit from parent)
         # This ensures Name(String) gets _attr_name="name", not "string"
         cls._attr_name = cls.__name__.lower()
+
+        # Validate attribute name doesn't conflict with TypeDB built-ins
+        _validate_attribute_name(cls._attr_name, cls.__name__)
 
     @property
     def value(self) -> Any:
