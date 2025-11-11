@@ -18,6 +18,7 @@ class EntityFlags:
     Args:
         type_name: TypeDB type name (defaults to lowercase class name)
         abstract: Whether this is an abstract entity type
+        base: Whether this is a Python base class that should not appear in TypeDB schema
 
     Example:
         class Person(Entity):
@@ -27,10 +28,15 @@ class EntityFlags:
         class AbstractPerson(Entity):
             flags = EntityFlags(abstract=True)
             name: Name
+
+        class Entity(tbg.Entity):
+            flags = EntityFlags(base=True)  # Python base class only
+            # Children skip this in TypeDB hierarchy
     """
 
     type_name: str | None = None
     abstract: bool = False
+    base: bool = False
 
 
 @dataclass
@@ -40,15 +46,21 @@ class RelationFlags:
     Args:
         type_name: TypeDB type name (defaults to lowercase class name)
         abstract: Whether this is an abstract relation type
+        base: Whether this is a Python base class that should not appear in TypeDB schema
 
     Example:
         class Employment(Relation):
             flags = RelationFlags(type_name="employment")
             employee: Role = Role("employee", Person)
+
+        class Relation(tbg.Relation):
+            flags = RelationFlags(base=True)  # Python base class only
+            # Children skip this in TypeDB hierarchy
     """
 
     type_name: str | None = None
     abstract: bool = False
+    base: bool = False
 
 
 class Card:

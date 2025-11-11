@@ -22,6 +22,8 @@ class SchemaInfo:
     def to_typeql(self) -> str:
         """Generate TypeQL schema definition from collected schema information.
 
+        Base classes (with base=True) are skipped as they don't appear in TypeDB schema.
+
         Returns:
             TypeQL schema definition string
         """
@@ -38,22 +40,26 @@ class SchemaInfo:
 
         lines.append("")
 
-        # Define entities
+        # Define entities (skip base classes)
         for entity_model in self.entities:
-            lines.append(entity_model.to_schema_definition())
-            lines.append("")
+            schema_def = entity_model.to_schema_definition()
+            if schema_def is not None:  # Skip base classes
+                lines.append(schema_def)
+                lines.append("")
 
-        # Define relations
+        # Define relations (skip base classes)
         for relation_model in self.relations:
-            lines.append(relation_model.to_schema_definition())
+            schema_def = relation_model.to_schema_definition()
+            if schema_def is not None:  # Skip base classes
+                lines.append(schema_def)
 
-            # Add role player definitions
-            for role_name, role in relation_model._roles.items():
-                player_type = role.player_type
-                lines.append(
-                    f"{player_type} plays {relation_model.get_type_name()}:{role.role_name};"
-                )
-            lines.append("")
+                # Add role player definitions
+                for role_name, role in relation_model._roles.items():
+                    player_type = role.player_type
+                    lines.append(
+                        f"{player_type} plays {relation_model.get_type_name()}:{role.role_name};"
+                    )
+                lines.append("")
 
         return "\n".join(lines)
 
