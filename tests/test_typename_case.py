@@ -1,6 +1,5 @@
 """Tests for TypeNameCase formatting options for Entity and Relation types."""
 
-
 from type_bridge import (
     Entity,
     EntityFlags,
@@ -25,14 +24,14 @@ class Age(Integer):
     pass
 
 
-def test_typename_case_lowercase_default():
-    """Test that lowercase is the default case formatting."""
+def test_typename_case_classname_default():
+    """Test that CLASS_NAME is the default case formatting."""
 
     class PersonName(Entity):
-        # No explicit case parameter - should default to LOWERCASE
+        # No explicit case parameter - should default to CLASS_NAME
         name: Name
 
-    assert PersonName.get_type_name() == "personname"
+    assert PersonName.get_type_name() == "PersonName"
 
 
 def test_typename_case_lowercase_explicit():

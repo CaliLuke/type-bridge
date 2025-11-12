@@ -1,7 +1,10 @@
 """Base Attribute class for TypeDB attribute types."""
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from type_bridge.attribute.flags import TypeNameCase
 
 # TypeDB built-in type names that cannot be used for attributes
 TYPEDB_BUILTIN_TYPES = {"thing", "entity", "relation", "attribute"}
@@ -34,9 +37,19 @@ class Attribute(ABC):
         Name("Alice")  # Creates Name instance with value "Alice"
         Age(30)        # Creates Age instance with value 30
 
+    Type name formatting:
+        You can control how the class name is converted to TypeDB attribute name
+        using the 'case' class variable or 'attr_name' for explicit control.
+
     Example:
         class Name(String):
-            pass
+            pass  # TypeDB attribute: "Name" (default CLASS_NAME)
+
+        class PersonName(String):
+            case = TypeNameCase.SNAKE_CASE  # TypeDB attribute: "person_name"
+
+        class PersonName(String):
+            attr_name = "full_name"  # Explicit override
 
         class Age(Integer):
             pass
@@ -52,6 +65,10 @@ class Attribute(ABC):
     # Class-level metadata
     value_type: ClassVar[str]  # TypeDB value type (string, integer, double, boolean, datetime)
     abstract: ClassVar[bool] = False
+    attr_name: ClassVar[str | None] = None  # Explicit attribute name (optional)
+    case: ClassVar["TypeNameCase | None"] = (
+        None  # Case formatting option (optional, defaults to CLASS_NAME)
+    )
 
     # Instance-level configuration (set via __init_subclass__)
     _attr_name: str | None = None
@@ -74,9 +91,22 @@ class Attribute(ABC):
         """Called when a subclass is created."""
         super().__init_subclass__(**kwargs)
 
+        # Import here to avoid circular dependency
+        from type_bridge.attribute.flags import TypeNameCase, format_type_name
+
+        # Determine the attribute name for this subclass
+        if cls.attr_name is not None:
+            # Explicit attr_name takes precedence
+            computed_name = cls.attr_name
+        else:
+            # Apply case formatting to class name
+            # Use the class's case if set, otherwise default to CLASS_NAME
+            case = cls.case if cls.case is not None else TypeNameCase.CLASS_NAME
+            computed_name = format_type_name(cls.__name__, case)
+
         # Always set the attribute name for each new subclass (don't inherit from parent)
         # This ensures Name(String) gets _attr_name="name", not "string"
-        cls._attr_name = cls.__name__.lower()
+        cls._attr_name = computed_name
 
         # Validate attribute name doesn't conflict with TypeDB built-ins
         _validate_attribute_name(cls._attr_name, cls.__name__)
@@ -119,8 +149,13 @@ class Attribute(ABC):
 
     @classmethod
     def get_attribute_name(cls) -> str:
-        """Get the TypeDB attribute name."""
-        return cls._attr_name or cls.__name__.lower()
+        """Get the TypeDB attribute name.
+
+        If attr_name is explicitly set, it is used as-is.
+        Otherwise, the class name is formatted according to the case parameter.
+        Default case is CLASS_NAME (preserves class name as-is).
+        """
+        return cls._attr_name or cls.__name__
 
     @classmethod
     def get_value_type(cls) -> str:
