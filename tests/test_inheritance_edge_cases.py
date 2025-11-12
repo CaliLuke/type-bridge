@@ -59,7 +59,7 @@ class TestInheritanceEdgeCases:
         # Should generate correct schema
         schema = ConcreteEntity.to_schema_definition()
         assert "entity concrete_entity sub base_entity" in schema
-        assert "owns name" in schema
+        assert "owns Name" in schema  # Name uses CLASS_NAME default
 
         # Base entity should also have correct schema
         base_schema = BaseEntity.to_schema_definition()
@@ -69,11 +69,11 @@ class TestInheritanceEdgeCases:
         """Test that intermediate class with default name gets validated."""
 
         # This should raise an error because the class name is "Entity"
-        # which would default to type_name="entity" (collision)
-        with pytest.raises(ValueError, match="'entity'.*conflicts with TypeDB built-in"):
+        # which would default to type_name="Entity" (which lowercases to "entity", collision)
+        with pytest.raises(ValueError, match="'Entity'.*conflicts with TypeDB built-in"):
             # Intentionally name the class "Entity" to trigger the edge case
             class Entity(tbg.Entity):  # type: ignore[no-redef]
-                pass  # No flags - would default to type_name="entity"
+                pass  # No flags - would default to type_name="Entity" (CLASS_NAME)
 
     def test_multi_level_inheritance_chain(self):
         """Test deep inheritance chain works correctly."""
@@ -114,20 +114,20 @@ class TestInheritanceEdgeCases:
             pass
 
         class Person(tbg.Entity):
-            # No explicit type_name - should use "person" (safe)
+            # No explicit type_name - should use "Person" (CLASS_NAME default)
             name: Name
 
-        assert Person.get_type_name() == "person"
+        assert Person.get_type_name() == "Person"  # CLASS_NAME default
         schema = Person.to_schema_definition()
-        assert "entity person" in schema
+        assert "entity Person" in schema  # CLASS_NAME default
 
     def test_relation_inheritance_edge_cases(self):
         """Test relation inheritance with built-in name collision."""
 
-        with pytest.raises(ValueError, match="'relation'.*conflicts with TypeDB built-in"):
+        with pytest.raises(ValueError, match="'Relation'.*conflicts with TypeDB built-in"):
 
             class Relation(tbg.Relation):  # type: ignore[no-redef]
-                pass  # Would default to type_name="relation"
+                pass  # Would default to type_name="Relation" (CLASS_NAME)
 
     def test_case_sensitivity_in_builtin_check(self):
         """Test that built-in type check is case-insensitive to match TypeDB behavior."""
@@ -186,10 +186,10 @@ class TestInheritanceAttributePropagation:
 
         # Check schema generation
         animal_schema = Animal.to_schema_definition()
-        assert "owns name" in animal_schema
+        assert "owns Name" in animal_schema  # Name uses CLASS_NAME default
 
         dog_schema = Dog.to_schema_definition()
         assert "entity dog sub animal" in dog_schema
-        assert "owns age" in dog_schema
+        assert "owns Age" in dog_schema  # Age uses CLASS_NAME default
         # Dog schema DOES include "name" because get_owned_attributes() includes it
-        assert "owns name" in dog_schema
+        assert "owns Name" in dog_schema  # Name uses CLASS_NAME default

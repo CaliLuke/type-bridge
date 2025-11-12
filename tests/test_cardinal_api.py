@@ -71,9 +71,9 @@ def test_cardinal_schema_generation():
 
     schema = Person.to_schema_definition()
     assert "entity person" in schema
-    assert "owns tag @card(2..)" in schema
-    assert "owns lang @card(0..5)" in schema
-    assert "owns job @card(1..3)" in schema
+    assert "owns Tag @card(2..)" in schema  # Tag uses CLASS_NAME default
+    assert "owns Lang @card(0..5)" in schema  # Lang uses CLASS_NAME default
+    assert "owns Job @card(1..3)" in schema  # Job uses CLASS_NAME default
 
 
 def test_cardinal_with_long_attribute():
@@ -128,8 +128,8 @@ def test_cardinal_insert_query():
     query = person.to_insert_query()
 
     assert "$e isa person" in query
-    assert 'has tag "python"' in query
-    assert 'has tag "rust"' in query
+    assert 'has Tag "python"' in query  # Tag uses CLASS_NAME default
+    assert 'has Tag "rust"' in query  # Tag uses CLASS_NAME default
 
 
 def test_cardinal_pyright_compliance():

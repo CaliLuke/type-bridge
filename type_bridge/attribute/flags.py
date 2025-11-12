@@ -91,11 +91,15 @@ class EntityFlags:
         type_name: TypeDB type name (if None, uses class name with case formatting)
         abstract: Whether this is an abstract entity type
         base: Whether this is a Python base class that should not appear in TypeDB schema
-        case: Case formatting for auto-generated type names (default: LOWERCASE)
+        case: Case formatting for auto-generated type names (default: CLASS_NAME)
 
     Example:
         class Person(Entity):
             flags = EntityFlags(type_name="person")
+            name: Name
+
+        class PersonName(Entity):
+            flags = EntityFlags()  # → PersonName (default CLASS_NAME)
             name: Name
 
         class PersonName(Entity):
@@ -114,7 +118,7 @@ class EntityFlags:
     type_name: str | None = None
     abstract: bool = False
     base: bool = False
-    case: TypeNameCase = TypeNameCase.LOWERCASE
+    case: TypeNameCase = TypeNameCase.CLASS_NAME
 
 
 @dataclass
@@ -125,11 +129,15 @@ class RelationFlags:
         type_name: TypeDB type name (if None, uses class name with case formatting)
         abstract: Whether this is an abstract relation type
         base: Whether this is a Python base class that should not appear in TypeDB schema
-        case: Case formatting for auto-generated type names (default: LOWERCASE)
+        case: Case formatting for auto-generated type names (default: CLASS_NAME)
 
     Example:
         class Employment(Relation):
             flags = RelationFlags(type_name="employment")
+            employee: Role = Role("employee", Person)
+
+        class PersonEmployment(Relation):
+            flags = RelationFlags()  # → PersonEmployment (default CLASS_NAME)
             employee: Role = Role("employee", Person)
 
         class PersonEmployment(Relation):
@@ -144,7 +152,7 @@ class RelationFlags:
     type_name: str | None = None
     abstract: bool = False
     base: bool = False
-    case: TypeNameCase = TypeNameCase.LOWERCASE
+    case: TypeNameCase = TypeNameCase.CLASS_NAME
 
 
 class Card:

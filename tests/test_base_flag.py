@@ -122,7 +122,7 @@ class TestBaseFlag:
         schema = AbstractEntity.to_schema_definition()
         assert schema is not None
         assert "entity abstract_entity, abstract" in schema
-        assert "owns name" in schema
+        assert "owns Name" in schema  # Name uses default CLASS_NAME case
 
     def test_base_class_with_attributes(self):
         """Test that base classes can have attributes (for Python inheritance)."""
@@ -148,7 +148,7 @@ class TestBaseFlag:
         schema = Child.to_schema_definition()
         assert schema is not None
         assert "entity child" in schema
-        assert "owns name" in schema
+        assert "owns Name" in schema  # Name uses CLASS_NAME default
 
     def test_relation_base_inheritance(self):
         """Test base flag with relation inheritance."""

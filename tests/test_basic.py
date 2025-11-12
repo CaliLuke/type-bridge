@@ -24,9 +24,9 @@ def test_attribute_creation():
     class Age(Integer):
         pass
 
-    assert Name.get_attribute_name() == "name"
+    assert Name.get_attribute_name() == "Name"  # Default CLASS_NAME case
     assert Name.get_value_type() == "string"
-    assert Age.get_attribute_name() == "age"
+    assert Age.get_attribute_name() == "Age"  # Default CLASS_NAME case
     assert Age.get_value_type() == "integer"
 
 
@@ -283,9 +283,9 @@ def test_entity_schema_generation():
 
     schema = Person.to_schema_definition()
     assert "entity person" in schema
-    assert "owns name @key" in schema  # @key implies @card(1,1), so @card is omitted
-    assert "owns age @card(0..1)" in schema  # Range syntax with ..
-    assert "owns email @card(0..1)" in schema  # Range syntax with ..
+    assert "owns Name @key" in schema  # Name uses CLASS_NAME default, @key implies @card(1,1)
+    assert "owns Age @card(0..1)" in schema  # Age uses CLASS_NAME default
+    assert "owns Email @card(0..1)" in schema  # Email uses CLASS_NAME default
 
 
 def test_entity_insert_query():
@@ -307,8 +307,8 @@ def test_entity_insert_query():
     query = alice.to_insert_query()
 
     assert "$e isa person" in query
-    assert 'has name "Alice"' in query
-    assert "has age 30" in query
+    assert 'has Name "Alice"' in query  # Name uses CLASS_NAME default
+    assert "has Age 30" in query  # Age uses CLASS_NAME default
 
 
 def test_relation_creation():
@@ -357,7 +357,7 @@ def test_relation_with_attributes():
     # Check owned attributes
     owned = Friendship.get_owned_attributes()
     assert "since_year" in owned
-    assert owned["since_year"].typ.get_attribute_name() == "sinceyear"
+    assert owned["since_year"].typ.get_attribute_name() == "SinceYear"  # CLASS_NAME default
     assert owned["since_year"].flags.card_min == 1
     assert owned["since_year"].flags.card_max == 1
 
@@ -395,5 +395,5 @@ def test_attribute_schema_generation():
     name_schema = Name.to_schema_definition()
     age_schema = Age.to_schema_definition()
 
-    assert "attribute name, value string;" in name_schema
-    assert "attribute age, value integer;" in age_schema
+    assert "attribute Name, value string;" in name_schema  # CLASS_NAME default
+    assert "attribute Age, value integer;" in age_schema  # CLASS_NAME default
