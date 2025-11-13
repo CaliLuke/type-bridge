@@ -114,11 +114,24 @@ examples/
 
 tests/
 ├── conftest.py                   # Pytest configuration
-├── test_basic.py                 # Comprehensive tests for attribute API, entities, relations,
-│                                 # Flag system, and cardinality
-├── test_cardinal_api.py          # Tests for Card API with Flag system
-├── test_literal_support.py       # Tests for Literal type support
-├── test_pydantic_integration.py  # Tests for Pydantic integration features
+├── unit/                         # Unit tests (fast, isolated, no external dependencies)
+│   ├── core/                     # Core functionality tests
+│   │   ├── test_basic.py         # Basic entity/relation/attribute API
+│   │   ├── test_inheritance.py   # Inheritance and type hierarchies
+│   │   └── test_pydantic.py      # Pydantic integration and validation
+│   ├── attributes/               # Attribute type tests
+│   │   ├── test_date.py          # Date attribute type
+│   │   ├── test_datetime_tz.py   # DateTimeTZ attribute type
+│   │   ├── test_decimal.py       # Decimal attribute type
+│   │   ├── test_duration.py      # Duration attribute type (ISO 8601)
+│   │   └── test_insert_queries.py # Attribute formatting in insert queries
+│   ├── flags/                    # Flag system tests
+│   │   ├── test_base_flag.py     # Base flag for schema exclusion
+│   │   ├── test_cardinality.py   # Card API for cardinality constraints
+│   │   ├── test_typename_case.py # Entity/Relation type name formatting
+│   │   └── test_attribute_typename_case.py # Attribute name formatting
+│   └── crud/                     # CRUD operation tests
+│       └── test_update_api.py    # Update API for entities
 └── integration/                  # Integration tests (require running TypeDB)
     ├── conftest.py               # Integration test fixtures (DB connection, cleanup)
     ├── test_schema_operations.py # Schema creation, migration, conflict detection
@@ -132,20 +145,24 @@ TypeBridge uses a two-tier testing approach:
 
 ### Unit Tests (Default)
 
-Located in `tests/` (excluding `tests/integration/`)
+Located in `tests/unit/` with organized subdirectories:
+- `core/`: Basic entity/relation/attribute API, inheritance, Pydantic integration
+- `attributes/`: Attribute types (Date, DateTimeTZ, Decimal, Duration, insert queries)
+- `flags/`: Flag system (base flags, cardinality, type name formatting)
+- `crud/`: CRUD operations (update API)
 
-- **Fast**: Run in milliseconds without external dependencies
+Characteristics:
+- **Fast**: Run in ~0.2 seconds without external dependencies
 - **Isolated**: Test individual components in isolation
 - **No TypeDB required**: Use mocks and in-memory validation
 - **Run by default**: `pytest` runs unit tests only
+- **178 tests total**: Organized by functionality
 
 Coverage:
-- Attribute type validation and operations
-- Entity/Relation model definitions
-- Schema generation logic
-- Query building (TypeQL string generation)
-- Flag system (Key, Unique, Card)
-- Pydantic integration
+- Core API: Entity/Relation creation, schema generation, inheritance (33 tests)
+- Attribute types: Date, DateTimeTZ, Decimal, Duration, formatting (85 tests)
+- Flag system: Base flags, cardinality, type name cases (43 tests)
+- CRUD operations: Update API for single/multi-value attributes (6 tests)
 
 ### Integration Tests
 
@@ -175,13 +192,22 @@ uv run pytest -m integration -v
 **Test execution patterns:**
 ```bash
 # Unit tests only (default, fast)
-uv run pytest
+uv run pytest                              # All 178 unit tests
+
+# Run specific unit test category
+uv run pytest tests/unit/core/             # Core tests (33 tests)
+uv run pytest tests/unit/attributes/       # Attribute tests (85 tests)
+uv run pytest tests/unit/flags/            # Flag tests (43 tests)
+uv run pytest tests/unit/crud/             # CRUD tests (6 tests)
+
+# Run specific unit test file
+uv run pytest tests/unit/attributes/test_duration.py -v
 
 # Integration tests only (requires TypeDB)
-uv run pytest -m integration
+uv run pytest -m integration              # All 27 integration tests
 
 # All tests (unit + integration)
-uv run pytest -m ""
+uv run pytest -m ""                       # All 205 tests
 
 # Specific integration test
 uv run pytest tests/integration/test_schema_operations.py -v
