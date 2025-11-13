@@ -6,6 +6,7 @@ from type_bridge.attribute import (
     Boolean,
     Card,
     DateTime,
+    DateTimeTZ,
     Double,
     EntityFlags,
     Flag,
@@ -40,6 +41,7 @@ __all__ = [
     "Double",
     "Boolean",
     "DateTime",
+    "DateTimeTZ",
     # Attribute annotations
     "AttributeFlags",
     "Flag",

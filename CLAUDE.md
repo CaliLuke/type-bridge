@@ -219,11 +219,13 @@ TypeBridge provides built-in attribute types that map to TypeDB's value types:
 - `Integer` → `value integer` in TypeDB (renamed from `Long` to match TypeDB 3.x)
 - `Double` → `value double` in TypeDB
 - `Boolean` → `value boolean` in TypeDB
-- `DateTime` → `value datetime` in TypeDB
+- `DateTime` → `value datetime` in TypeDB (naive datetime, no timezone)
+- `DateTimeTZ` → `value datetime-tz` in TypeDB (timezone-aware datetime)
 
 Example:
 ```python
-from type_bridge import String, Integer, Double
+from datetime import datetime, timezone
+from type_bridge import String, Integer, Double, DateTime, DateTimeTZ
 
 class Name(String):
     pass
@@ -233,7 +235,59 @@ class Age(Integer):  # Note: Integer, not Long
 
 class Score(Double):
     pass
+
+class CreatedAt(DateTime):  # Naive datetime (no timezone)
+    pass
+
+class UpdatedAt(DateTimeTZ):  # Timezone-aware datetime
+    pass
 ```
+
+### DateTime vs DateTimeTZ
+
+TypeDB distinguishes between two datetime types:
+
+1. **DateTime** (`value datetime`): For naive datetimes without timezone information
+   ```python
+   created = CreatedAt(datetime(2024, 1, 15, 10, 30, 45))
+   ```
+
+2. **DateTimeTZ** (`value datetime-tz`): For timezone-aware datetimes
+   ```python
+   updated = UpdatedAt(datetime(2024, 1, 15, 10, 30, 45, tzinfo=timezone.utc))
+   ```
+
+### DateTime Conversions
+
+TypeBridge provides conversion methods between DateTime and DateTimeTZ:
+
+**Add timezone to DateTime:**
+```python
+# Implicit: add system timezone
+naive_dt = DateTime(datetime(2024, 1, 15, 10, 30, 45))
+aware_dt = naive_dt.add_timezone()  # Uses system timezone
+
+# Explicit: add specific timezone
+from datetime import timezone, timedelta
+jst = timezone(timedelta(hours=9))
+aware_jst = naive_dt.add_timezone(jst)  # Add JST timezone
+aware_utc = naive_dt.add_timezone(timezone.utc)  # Add UTC timezone
+```
+
+**Strip timezone from DateTimeTZ:**
+```python
+# Implicit: just strip timezone
+aware_dt = DateTimeTZ(datetime(2024, 1, 15, 10, 30, 45, tzinfo=timezone.utc))
+naive_dt = aware_dt.strip_timezone()  # Strips timezone as-is
+
+# Explicit: convert to timezone first, then strip
+jst = timezone(timedelta(hours=9))
+naive_jst = aware_dt.strip_timezone(jst)  # Convert to JST, then strip
+```
+
+**Conversion semantics:**
+- `DateTime.add_timezone(tz=None)`: If tz is None, adds system timezone; otherwise adds specified timezone
+- `DateTimeTZ.strip_timezone(tz=None)`: If tz is None, strips timezone as-is; otherwise converts to tz first, then strips
 
 ## Deprecated APIs
 
