@@ -7,6 +7,7 @@ from type_bridge.attribute import (
     Card,
     DateTime,
     DateTimeTZ,
+    Decimal,
     Double,
     EntityFlags,
     Flag,
@@ -42,6 +43,7 @@ __all__ = [
     "Boolean",
     "DateTime",
     "DateTimeTZ",
+    "Decimal",
     # Attribute annotations
     "AttributeFlags",
     "Flag",

@@ -217,7 +217,8 @@ TypeBridge provides built-in attribute types that map to TypeDB's value types:
 
 - `String` → `value string` in TypeDB
 - `Integer` → `value integer` in TypeDB (renamed from `Long` to match TypeDB 3.x)
-- `Double` → `value double` in TypeDB
+- `Double` → `value double` in TypeDB (floating-point)
+- `Decimal` → `value decimal` in TypeDB (fixed-point, 19 decimal digits precision)
 - `Boolean` → `value boolean` in TypeDB
 - `DateTime` → `value datetime` in TypeDB (naive datetime, no timezone)
 - `DateTimeTZ` → `value datetime-tz` in TypeDB (timezone-aware datetime)
@@ -225,7 +226,8 @@ TypeBridge provides built-in attribute types that map to TypeDB's value types:
 Example:
 ```python
 from datetime import datetime, timezone
-from type_bridge import String, Integer, Double, DateTime, DateTimeTZ
+from decimal import Decimal as DecimalType
+from type_bridge import String, Integer, Double, Decimal, DateTime, DateTimeTZ
 
 class Name(String):
     pass
@@ -233,7 +235,10 @@ class Name(String):
 class Age(Integer):  # Note: Integer, not Long
     pass
 
-class Score(Double):
+class Score(Double):  # Floating-point number
+    pass
+
+class Price(Decimal):  # Fixed-point decimal with high precision
     pass
 
 class CreatedAt(DateTime):  # Naive datetime (no timezone)
@@ -242,6 +247,42 @@ class CreatedAt(DateTime):  # Naive datetime (no timezone)
 class UpdatedAt(DateTimeTZ):  # Timezone-aware datetime
     pass
 ```
+
+### Double vs Decimal
+
+TypeDB provides two numeric types for non-integer values:
+
+1. **Double** (`value double`): Floating-point number (standard IEEE 754)
+   - Use for: Scientific calculations, measurements, approximate values
+   - Example: `Score(95.5)`, `Temperature(37.2)`
+
+2. **Decimal** (`value decimal`): Fixed-point number with exact precision
+   - 64 bits for integer part, 19 decimal digits of precision after decimal point
+   - Range: −2^63 to 2^63 − 10^−19
+   - Use for: Financial calculations, monetary values, exact decimal representation
+   - TypeQL syntax: Values use `dec` suffix (e.g., `0.02dec`)
+   - Example:
+     ```python
+     from decimal import Decimal as DecimalType
+
+     class AccountBalance(Decimal):
+         pass
+
+     # Use string for exact precision (recommended)
+     balance = AccountBalance("1234.567890123456789")
+
+     # In TypeQL insert query: has AccountBalance 1234.567890123456789dec
+     ```
+
+**When to use Decimal:**
+- Financial applications (account balances, prices, tax calculations)
+- When exact decimal representation is required
+- When you need to avoid floating-point rounding errors
+
+**When to use Double:**
+- Scientific measurements
+- Statistical calculations
+- When approximate values are acceptable
 
 ### DateTime vs DateTimeTZ
 

@@ -209,6 +209,8 @@ class TypeDBType(BaseModel, ABC):
     @staticmethod
     def _format_value(value: Any) -> str:
         """Format a Python value for TypeQL."""
+        from decimal import Decimal as DecimalType
+
         # Extract value from Attribute instances
         if isinstance(value, Attribute):
             value = value.value
@@ -217,6 +219,9 @@ class TypeDBType(BaseModel, ABC):
             return f'"{value}"'
         elif isinstance(value, bool):
             return "true" if value else "false"
+        elif isinstance(value, DecimalType):
+            # TypeDB decimal literals require 'dec' suffix
+            return f"{value}dec"
         elif isinstance(value, (int, float)):
             return str(value)
         elif isinstance(value, datetime_type):

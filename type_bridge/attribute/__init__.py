@@ -2,7 +2,7 @@
 
 This package provides the attribute type system for TypeBridge, including:
 - Base Attribute ABC
-- Concrete attribute types (String, Integer, Double, Boolean, DateTime, DateTimeTZ)
+- Concrete attribute types (String, Integer, Double, Boolean, DateTime, DateTimeTZ, Decimal)
 - Flag system for annotations (Key, Unique, Card)
 """
 
@@ -10,6 +10,7 @@ from type_bridge.attribute.base import Attribute
 from type_bridge.attribute.boolean import Boolean
 from type_bridge.attribute.datetime import DateTime
 from type_bridge.attribute.datetimetz import DateTimeTZ
+from type_bridge.attribute.decimal import Decimal
 from type_bridge.attribute.double import Double
 from type_bridge.attribute.flags import (
     AttributeFlags,
@@ -35,6 +36,7 @@ __all__ = [
     "Boolean",
     "DateTime",
     "DateTimeTZ",
+    "Decimal",
     # Flag system
     "Flag",
     "Key",
