@@ -145,31 +145,32 @@ tests/
 
 ## Testing Strategy
 
-TypeBridge uses a two-tier testing approach:
+TypeBridge uses a two-tier testing approach with **100% test pass rate (341/341 tests)**:
 
 ### Unit Tests (Default)
 
 Located in `tests/unit/` with organized subdirectories:
 - `core/`: Basic entity/relation/attribute API, inheritance, Pydantic integration
-- `attributes/`: Attribute types (Date, DateTimeTZ, Decimal, Duration, insert queries)
+- `attributes/`: All 9 attribute types with dedicated test files
 - `flags/`: Flag system (base flags, cardinality, type name formatting)
 - `crud/`: CRUD operations (update API)
+- `validation/`: Reserved word and keyword validation
 
 Characteristics:
 - **Fast**: Run in ~0.3 seconds without external dependencies
 - **Isolated**: Test individual components in isolation
 - **No TypeDB required**: Use mocks and in-memory validation
 - **Run by default**: `pytest` runs unit tests only
-- **240 tests total**: Organized by functionality
+- **243 tests total**: Organized by functionality
 
 Coverage:
 - Core API: Entity/Relation creation, schema generation, inheritance (33 tests)
-- Attribute types: All 8 types with dedicated test files (115 tests)
-  - Boolean, Date, DateTimeTZ, Decimal, Double, Duration, Integer, String
+- Attribute types: All 9 types with dedicated test files (115 tests)
+  - Boolean, Date, DateTime, DateTimeTZ, Decimal, Double, Duration, Integer, String
   - Mixed formatting tests for query generation
 - Flag system: Base flags, cardinality, type name cases (54 tests)
 - CRUD operations: Update API for single/multi-value attributes (6 tests)
-- Validation: Pydantic integration, keyword validation, type checking (32 tests)
+- Validation: Pydantic integration, keyword validation, type checking (35 tests)
 
 ### Integration Tests
 
@@ -179,13 +180,15 @@ Located in `tests/integration/`
 - **Real database**: Require running TypeDB 3.x server
 - **End-to-end**: Test complete workflows from schema to queries
 - **Explicit execution**: Must use `pytest -m integration`
+- **98 tests total**: Full CRUD, schema, and query coverage
 
 Coverage:
-- Schema creation, migration, conflict detection
-- CRUD operations (insert, fetch, update, delete)
-- Complex queries with real data
-- Transaction management
-- Database lifecycle (creation, cleanup)
+- Schema creation, conflict detection, inheritance (8 tests)
+- CRUD operations for all 9 attribute types (insert, fetch, update, delete)
+- Multi-value attribute operations (9 tests)
+- Complex queries with real data (pagination, filtering, role players)
+- TypeDB 3.x specific features (proper `isa` syntax, offset before limit)
+- Transaction management and database lifecycle
 
 **Setup for integration tests:**
 ```bash
@@ -199,13 +202,14 @@ uv run pytest -m integration -v
 **Test execution patterns:**
 ```bash
 # Unit tests only (default, fast)
-uv run pytest                              # All 208 unit tests
+uv run pytest                              # All 243 unit tests
 
 # Run specific unit test category
 uv run pytest tests/unit/core/             # Core tests (33 tests)
 uv run pytest tests/unit/attributes/       # Attribute tests (115 tests)
-uv run pytest tests/unit/flags/            # Flag tests (43 tests)
+uv run pytest tests/unit/flags/            # Flag tests (54 tests)
 uv run pytest tests/unit/crud/             # CRUD tests (6 tests)
+uv run pytest tests/unit/validation/       # Validation tests (35 tests)
 
 # Run specific attribute type test
 uv run pytest tests/unit/attributes/test_integer.py -v
@@ -213,13 +217,16 @@ uv run pytest tests/unit/attributes/test_string.py -v
 uv run pytest tests/unit/attributes/test_boolean.py -v
 
 # Integration tests only (requires TypeDB)
-uv run pytest -m integration              # All 27 integration tests
+uv run pytest -m integration              # All 98 integration tests
 
 # All tests (unit + integration)
-uv run pytest -m ""                       # All 235 tests
+uv run pytest -m ""                       # All 341 tests
+./test.sh                                 # Full test suite with detailed output
+./check.sh                                # Linting and type checking
 
 # Specific integration test
-uv run pytest tests/integration/test_schema_operations.py -v
+uv run pytest tests/integration/schema/test_conflict.py -v
+uv run pytest tests/integration/queries/test_pagination.py -v
 ```
 
 ## TypeDB ORM Design Considerations
@@ -1011,6 +1018,70 @@ The driver API for version 3.5.5 differs from earlier versions:
 3. **TransactionType enum**: `READ`, `WRITE`, `SCHEMA`
 
 4. **Authentication**: Requires `Credentials(username, password)` even for local development
+
+## TypeDB 3.x Syntax and Behavior Changes
+
+TypeDB 3.x introduced important syntax and behavior changes that affect query generation:
+
+### Query Syntax Changes
+
+1. **Type queries use `isa` instead of `sub`**:
+   ```typeql
+   # ✅ TypeDB 3.x (correct)
+   match $x isa person;
+
+   # ❌ TypeDB 2.x (deprecated)
+   match $x sub person;
+   ```
+
+2. **Cannot query root types directly**:
+   - Cannot match on `entity`, `relation`, or `attribute` root types
+   - Must query specific subtypes (e.g., `person`, `employment`)
+   ```typeql
+   # ❌ This will fail in TypeDB 3.x
+   match $x isa entity;
+
+   # ✅ Query specific entity types
+   match $x isa person;
+   ```
+
+3. **Pagination requires explicit sorting**:
+   - `offset` relies on consistent sort order
+   - Always include `sort` clause when using `offset`
+   ```typeql
+   # ✅ Correct pagination
+   match $p isa person;
+   sort $p asc;
+   offset 10;
+   limit 5;
+
+   # ⚠️ Unpredictable results without sort
+   match $p isa person;
+   offset 10;
+   limit 5;
+   ```
+
+4. **Clause ordering matters**:
+   - `offset` must come before `limit`
+   ```typeql
+   # ✅ Correct order
+   match $p isa person;
+   offset 10;
+   limit 5;
+
+   # ❌ Wrong order (syntax error)
+   match $p isa person;
+   limit 5;
+   offset 10;
+   ```
+
+### Implementation Considerations
+
+When generating TypeQL queries:
+- Use `isa` for type matching in all queries
+- Avoid querying root types (`entity`, `relation`, `attribute`)
+- Always include explicit `sort` clause when using `offset` for pagination
+- Ensure clause order: `match` → `sort` → `offset` → `limit`
 
 ## Code Quality Standards
 
