@@ -70,6 +70,7 @@ def test_cardinal_schema_generation():
         jobs: list[Job] = Flag(Card(1, 3))
 
     schema = Person.to_schema_definition()
+    assert schema is not None
     assert "entity person" in schema
     assert "owns Tag @card(2..)" in schema  # Tag uses CLASS_NAME default
     assert "owns Lang @card(0..5)" in schema  # Lang uses CLASS_NAME default

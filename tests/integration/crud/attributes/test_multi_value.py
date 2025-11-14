@@ -1,6 +1,6 @@
 """Integration tests for multi-value attributes across all types."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal as PyDecimal
 
 import pytest
@@ -259,8 +259,8 @@ def test_multi_value_datetimetz(clean_db):
     cluster = Cluster(
         name=Name("prod"),
         sync_times=[
-            SyncTime(datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc)),
-            SyncTime(datetime(2024, 1, 1, 14, 0, 0, tzinfo=timezone.utc)),
+            SyncTime(datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC)),
+            SyncTime(datetime(2024, 1, 1, 14, 0, 0, tzinfo=UTC)),
         ],
     )
     manager.insert(cluster)

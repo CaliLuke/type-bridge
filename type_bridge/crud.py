@@ -354,7 +354,9 @@ class EntityManager[E: Entity]:
     def _format_value(value: Any) -> str:
         """Format a Python value for TypeQL."""
         if isinstance(value, str):
-            return f'"{value}"'
+            # Escape backslashes first, then double quotes for TypeQL string literals
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
         elif isinstance(value, bool):
             return "true" if value else "false"
         elif isinstance(value, (int, float)):
@@ -363,7 +365,10 @@ class EntityManager[E: Entity]:
             # TypeDB datetime literals are unquoted ISO 8601 strings
             return value.isoformat()
         else:
-            return f'"{str(value)}"'
+            # For other types, convert to string and escape
+            str_value = str(value)
+            escaped = str_value.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
 
 
 class EntityQuery[E: Entity]:
@@ -550,29 +555,15 @@ class RelationManager[R: Relation]:
                         # Extract value from Attribute instance
                         if hasattr(item, "value"):
                             item = item.value
-                        # Format for TypeQL
-                        if isinstance(item, str):
-                            formatted = f'"{item}"'
-                        elif isinstance(item, bool):
-                            formatted = "true" if item else "false"
-                        elif isinstance(item, (int, float)):
-                            formatted = str(item)
-                        else:
-                            formatted = str(item)
+                        # Use _format_value to ensure proper escaping
+                        formatted = self._format_value(item)
                         attr_parts.append(f"has {attr_name} {formatted}")
                 else:
                     # Extract value from Attribute instance
                     if hasattr(value, "value"):
                         value = value.value
-                    # Format for TypeQL
-                    if isinstance(value, str):
-                        formatted = f'"{value}"'
-                    elif isinstance(value, bool):
-                        formatted = "true" if value else "false"
-                    elif isinstance(value, (int, float)):
-                        formatted = str(value)
-                    else:
-                        formatted = str(value)
+                    # Use _format_value to ensure proper escaping
+                    formatted = self._format_value(value)
                     attr_parts.append(f"has {attr_name} {formatted}")
 
         # Combine relation pattern with attributes
@@ -736,7 +727,9 @@ class RelationManager[R: Relation]:
     def _format_value(value: Any) -> str:
         """Format a Python value for TypeQL."""
         if isinstance(value, str):
-            return f'"{value}"'
+            # Escape backslashes first, then double quotes for TypeQL string literals
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
         elif isinstance(value, bool):
             return "true" if value else "false"
         elif isinstance(value, (int, float)):
@@ -745,7 +738,10 @@ class RelationManager[R: Relation]:
             # TypeDB datetime literals are unquoted ISO 8601 strings
             return value.isoformat()
         else:
-            return f'"{str(value)}"'
+            # For other types, convert to string and escape
+            str_value = str(value)
+            escaped = str_value.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
 
     def get(self, **filters) -> list[R]:
         """Get relations matching filters.

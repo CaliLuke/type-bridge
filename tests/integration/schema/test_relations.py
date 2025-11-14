@@ -48,11 +48,13 @@ def test_schema_with_relations(clean_db):
     # Verify schema
     schema_info = schema_manager.collect_schema_info()
 
-    assert "person" in schema_info.entities
-    assert "company" in schema_info.entities
-    assert "employment" in schema_info.relations
+    entity_names = {e.get_type_name() for e in schema_info.entities}
+    assert "person" in entity_names
+    assert "company" in entity_names
+    relation_names = {r.get_type_name() for r in schema_info.relations}
+    assert "employment" in relation_names
 
     # Verify relation roles
-    employment_info = schema_info.relations["employment"]
-    assert "employee" in employment_info.roles
-    assert "employer" in employment_info.roles
+    employment_relation = [r for r in schema_info.relations if r.get_type_name() == "employment"][0]
+    assert "employee" in employment_relation._roles
+    assert "employer" in employment_relation._roles

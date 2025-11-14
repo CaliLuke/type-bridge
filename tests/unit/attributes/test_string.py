@@ -66,14 +66,70 @@ def test_string_with_special_characters():
         flags = EntityFlags(type_name="item")
         description: Description
 
-    # Test with quotes in string
+    # Test with quotes in string - quotes should be escaped
     item = Item(description=Description('A "quoted" string'))
     query = item.to_insert_query()
 
     assert "$e isa item" in query
-    # String should be properly quoted
     assert "has Description" in query
-    assert '"' in query
+    # Verify quotes are properly escaped
+    assert r'has Description "A \"quoted\" string"' in query
+
+
+def test_string_quote_escaping():
+    """Test that double quotes are properly escaped in TypeQL queries."""
+
+    class Text(String):
+        pass
+
+    class Message(Entity):
+        flags = EntityFlags(type_name="message")
+        text: Text
+
+    # Test double quote escaping
+    msg = Message(text=Text('He said "hello" to me'))
+    query = msg.to_insert_query()
+
+    # Should escape quotes with backslash
+    assert r'has Text "He said \"hello\" to me"' in query
+    # Should NOT have unescaped quotes
+    assert 'has Text "He said "hello"' not in query
+
+
+def test_string_backslash_escaping():
+    """Test that backslashes are properly escaped in TypeQL queries."""
+
+    class Path(String):
+        pass
+
+    class File(Entity):
+        flags = EntityFlags(type_name="file")
+        path: Path
+
+    # Test backslash escaping
+    file = File(path=Path("C:\\Users\\Documents"))
+    query = file.to_insert_query()
+
+    # Backslashes should be escaped
+    assert r'has Path "C:\\Users\\Documents"' in query
+
+
+def test_string_mixed_escaping():
+    """Test escaping of both quotes and backslashes together."""
+
+    class Description(String):
+        pass
+
+    class Item(Entity):
+        flags = EntityFlags(type_name="item")
+        description: Description
+
+    # Test complex escaping with both quotes and backslashes
+    item = Item(description=Description(r'Path: "C:\Program Files\App" is valid'))
+    query = item.to_insert_query()
+
+    # Both quotes and backslashes should be escaped
+    assert r'has Description "Path: \"C:\\Program Files\\App\" is valid"' in query
 
 
 def test_empty_string_insert_query():

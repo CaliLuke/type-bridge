@@ -75,35 +75,41 @@ def test_schema_with_all_attribute_types(clean_db):
     schema_info = schema_manager.collect_schema_info()
 
     # Verify entity exists
-    assert "complete_record" in schema_info.entities
-    record_info = schema_info.entities["complete_record"]
+    entity_names = {e.get_type_name() for e in schema_info.entities}
+    assert "complete_record" in entity_names
+    record_entity = [e for e in schema_info.entities if e.get_type_name() == "complete_record"][0]
+    owned_attrs = record_entity.get_owned_attributes()
 
     # Verify all attribute types are registered
-    assert "Name" in schema_info.attributes
-    assert "Age" in schema_info.attributes
-    assert "IsActive" in schema_info.attributes
-    assert "Score" in schema_info.attributes
-    assert "BirthDate" in schema_info.attributes
-    assert "CreatedAt" in schema_info.attributes
-    assert "UpdatedAt" in schema_info.attributes
-    assert "Balance" in schema_info.attributes
-    assert "SessionDuration" in schema_info.attributes
+    attr_names = {a.get_attribute_name() for a in schema_info.attribute_classes}
+    assert "Name" in attr_names
+    assert "Age" in attr_names
+    assert "IsActive" in attr_names
+    assert "Score" in attr_names
+    assert "BirthDate" in attr_names
+    assert "CreatedAt" in attr_names
+    assert "UpdatedAt" in attr_names
+    assert "Balance" in attr_names
+    assert "SessionDuration" in attr_names
 
-    # Verify entity owns all attributes
-    assert "Name" in record_info.owns
-    assert "Age" in record_info.owns
-    assert "IsActive" in record_info.owns
-    assert "Score" in record_info.owns
-    assert "BirthDate" in record_info.owns
-    assert "CreatedAt" in record_info.owns
-    assert "UpdatedAt" in record_info.owns
-    assert "Balance" in record_info.owns
-    assert "SessionDuration" in record_info.owns
+    # Verify entity owns all attributes (field names)
+    assert "name" in owned_attrs
+    assert "age" in owned_attrs
+    assert "is_active" in owned_attrs
+    assert "score" in owned_attrs
+    assert "birth_date" in owned_attrs
+    assert "created_at" in owned_attrs
+    assert "updated_at" in owned_attrs
+    assert "balance" in owned_attrs
+    assert "session_duration" in owned_attrs
 
-    # Verify Name is key
-    assert record_info.owns["Name"].is_key is True
+    # Verify name is key
+    assert owned_attrs["name"].flags.is_key is True
 
     # Verify optional attributes have correct cardinality (0..1)
-    assert record_info.owns["Age"].card == (0, 1)
-    assert record_info.owns["IsActive"].card == (0, 1)
-    assert record_info.owns["Score"].card == (0, 1)
+    assert owned_attrs["age"].flags.card_min == 0
+    assert owned_attrs["age"].flags.card_max == 1
+    assert owned_attrs["is_active"].flags.card_min == 0
+    assert owned_attrs["is_active"].flags.card_max == 1
+    assert owned_attrs["score"].flags.card_min == 0
+    assert owned_attrs["score"].flags.card_max == 1

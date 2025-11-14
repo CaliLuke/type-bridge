@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime as datetime_type
-from typing import get_args, get_origin
+from typing import Literal, get_args, get_origin
 
 from type_bridge.attribute import (
     Attribute,
@@ -15,7 +15,7 @@ from type_bridge.attribute import (
     Integer,
     String,
 )
-from type_bridge.validation import ReservedWordError, validate_type_name as validate_reserved_word
+from type_bridge.validation import validate_type_name as validate_reserved_word
 
 
 @dataclass
@@ -187,7 +187,7 @@ TYPEDB_BUILTIN_TYPES = {"thing", "entity", "relation", "attribute"}
 def validate_type_name(
     type_name: str,
     class_name: str,
-    context: str = "entity"
+    context: Literal["entity", "relation", "attribute", "role"] = "entity"
 ) -> None:
     """Validate that a type name doesn't conflict with TypeDB built-ins or TypeQL keywords.
 

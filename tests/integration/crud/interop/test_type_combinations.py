@@ -1,6 +1,6 @@
 """Integration tests for common real-world type combinations."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal as PyDecimal
 
 import pytest
@@ -180,7 +180,7 @@ def test_measurement_entity_string_double_datetimetz(clean_db):
     measurement = Measurement(
         sensor=SensorName("TEMP-01"),
         temperature=Temperature(23.5),
-        measured_at=MeasuredAt(datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)),
+        measured_at=MeasuredAt(datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)),
     )
     manager.insert(measurement)
 
@@ -189,7 +189,7 @@ def test_measurement_entity_string_double_datetimetz(clean_db):
     assert len(results) == 1
     assert abs(results[0].temperature.value - 23.5) < 0.01
     assert results[0].measured_at.value == datetime(
-        2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc
+        2024, 1, 15, 10, 30, 0, tzinfo=UTC
     )
 
 
@@ -315,7 +315,7 @@ def test_session_entity_string_datetime_datetimetz_duration(clean_db):
     session = Session(
         session_id=SessionId("sess-001"),
         started_at=StartedAt(datetime(2024, 1, 1, 10, 0, 0)),
-        last_active=LastActive(datetime(2024, 1, 1, 12, 30, 0, tzinfo=timezone.utc)),
+        last_active=LastActive(datetime(2024, 1, 1, 12, 30, 0, tzinfo=UTC)),
         duration=SessionDuration(timedelta(hours=2, minutes=30)),
     )
     manager.insert(session)
@@ -432,7 +432,7 @@ def test_audit_entity_all_nine_types(clean_db):
         risk_score=RiskScore(0.25),
         action_date=ActionDate(date(2024, 1, 15)),
         action_time=ActionTime(datetime(2024, 1, 15, 10, 30, 0)),
-        synced_at=SyncedAt(datetime(2024, 1, 15, 10, 31, 0, tzinfo=timezone.utc)),
+        synced_at=SyncedAt(datetime(2024, 1, 15, 10, 31, 0, tzinfo=UTC)),
         amount=Amount(PyDecimal("1500.00")),
         processing_time=ProcessingTime(timedelta(milliseconds=250)),
     )

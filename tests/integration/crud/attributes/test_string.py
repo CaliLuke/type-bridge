@@ -2,7 +2,7 @@
 
 import pytest
 
-from type_bridge import Entity, EntityFlags, Flag, Integer, Key, SchemaManager, String
+from type_bridge import Entity, EntityFlags, Flag, Key, SchemaManager, String
 
 
 @pytest.mark.integration
@@ -146,3 +146,117 @@ def test_string_delete(clean_db):
     # Verify deletion
     results = manager.get(username="eve")
     assert len(results) == 0
+
+
+@pytest.mark.integration
+@pytest.mark.order(35)
+def test_string_special_characters_escaping(clean_db):
+    """Test inserting, fetching, and updating strings with quotes and backslashes."""
+
+    class Name(String):
+        pass
+
+    class Description(String):
+        pass
+
+    class Message(Entity):
+        flags = EntityFlags(type_name="message_escaping")
+        name: Name = Flag(Key)
+        description: Description | None
+
+    # Create schema
+    schema_manager = SchemaManager(clean_db)
+    schema_manager.register(Message)
+    schema_manager.sync_schema(force=True)
+
+    manager = Message.manager(clean_db)
+
+    # Test 1: Insert with double quotes
+    msg1 = Message(
+        name=Name("greeting"),
+        description=Description('He said "hello" to me')
+    )
+    manager.insert(msg1)
+
+    # Verify quotes are preserved
+    results = manager.get(name="greeting")
+    assert len(results) == 1
+    assert isinstance(results[0].description, Description)
+    assert results[0].description.value == 'He said "hello" to me'
+
+    # Test 2: Insert with backslashes
+    msg2 = Message(
+        name=Name("path"),
+        description=Description("C:\\Users\\Documents")
+    )
+    manager.insert(msg2)
+
+    # Verify backslashes are preserved
+    results = manager.get(name="path")
+    assert len(results) == 1
+    assert isinstance(results[0].description, Description)
+    assert results[0].description.value == "C:\\Users\\Documents"
+
+    # Test 3: Insert with both quotes and backslashes
+    msg3 = Message(
+        name=Name("complex"),
+        description=Description(r'Path: "C:\Program Files\App" is valid')
+    )
+    manager.insert(msg3)
+
+    # Verify complex string is preserved
+    results = manager.get(name="complex")
+    assert len(results) == 1
+    assert isinstance(results[0].description, Description)
+    assert results[0].description.value == r'Path: "C:\Program Files\App" is valid'
+
+    # Test 4: Update with special characters
+    msg_to_update = manager.get(name="greeting")[0]
+    msg_to_update.description = Description('She replied "goodbye" with a smile\\')
+    manager.update(msg_to_update)
+
+    # Verify update worked
+    updated = manager.get(name="greeting")
+    assert len(updated) == 1
+    assert isinstance(updated[0].description, Description)
+    assert updated[0].description.value == 'She replied "goodbye" with a smile\\'
+
+    # Test 5: Multiple quotes and various special patterns
+    msg4 = Message(
+        name=Name("multiple_quotes"),
+        description=Description('Multiple "quotes" in "different" places')
+    )
+    manager.insert(msg4)
+
+    results = manager.get(name="multiple_quotes")
+    assert len(results) == 1
+    assert isinstance(results[0].description, Description)
+    assert results[0].description.value == 'Multiple "quotes" in "different" places'
+
+    # Test 6: Single quotes (should not be escaped in TypeQL double-quoted strings)
+    msg5 = Message(
+        name=Name("single_quotes"),
+        description=Description("It's a 'test' with single quotes")
+    )
+    manager.insert(msg5)
+
+    results = manager.get(name="single_quotes")
+    assert len(results) == 1
+    assert isinstance(results[0].description, Description)
+    assert results[0].description.value == "It's a 'test' with single quotes"
+
+    # Test 7: Empty string (edge case)
+    msg6 = Message(
+        name=Name("empty"),
+        description=Description("")
+    )
+    manager.insert(msg6)
+
+    results = manager.get(name="empty")
+    assert len(results) == 1
+    assert isinstance(results[0].description, Description)
+    assert results[0].description.value == ""
+
+    # Test 8: Verify all messages were inserted
+    all_messages = manager.all()
+    assert len(all_messages) == 7

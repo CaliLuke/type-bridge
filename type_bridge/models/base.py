@@ -234,7 +234,9 @@ class TypeDBType(BaseModel, ABC):
             value = value.value
 
         if isinstance(value, str):
-            return f'"{value}"'
+            # Escape backslashes first, then double quotes for TypeQL string literals
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
         elif isinstance(value, bool):
             return "true" if value else "false"
         elif isinstance(value, DecimalType):

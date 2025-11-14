@@ -1,6 +1,6 @@
 """Integration tests for entities with mixed attribute types."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal as PyDecimal
 
 import pytest
@@ -82,7 +82,7 @@ def test_insert_entity_with_all_types(clean_db):
         score=Score(95.5),
         birth_date=BirthDate(date(1994, 3, 15)),
         created_at=CreatedAt(datetime(2024, 1, 1, 10, 0, 0)),
-        updated_at=UpdatedAt(datetime(2024, 1, 2, 15, 30, 0, tzinfo=timezone.utc)),
+        updated_at=UpdatedAt(datetime(2024, 1, 2, 15, 30, 0, tzinfo=UTC)),
         balance=Balance(PyDecimal("1234.56")),
         session_time=SessionTime(timedelta(hours=2, minutes=30)),
     )
@@ -244,6 +244,7 @@ def test_optional_types_mixed_with_required(clean_db):
     results = manager.get(name="Frank")
     assert len(results) == 1
     assert results[0].age.value == 35
+    assert isinstance(results[0].score, Score)
     assert abs(results[0].score.value - 88.0) < 0.01
 
 

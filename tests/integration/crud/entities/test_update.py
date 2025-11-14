@@ -37,6 +37,7 @@ def test_update_single_value_attribute(db_with_schema):
 
     # Verify update
     updated = manager.get(name="Henry")
+    assert isinstance(updated[0].age, Age)
     assert updated[0].age.value == 26
 
 

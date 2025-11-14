@@ -247,7 +247,9 @@ class QueryBuilder:
 def _format_value(value: Any) -> str:
     """Format a Python value for TypeQL."""
     if isinstance(value, str):
-        return f'"{value}"'
+        # Escape backslashes first, then double quotes for TypeQL string literals
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
     elif isinstance(value, bool):
         return "true" if value else "false"
     elif isinstance(value, (int, float)):
@@ -256,4 +258,7 @@ def _format_value(value: Any) -> str:
         # TypeDB datetime literals are unquoted ISO 8601 strings
         return value.isoformat()
     else:
-        return f'"{str(value)}"'
+        # For other types, convert to string and escape
+        str_value = str(value)
+        escaped = str_value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'

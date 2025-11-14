@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 
-from type_bridge.validation import ReservedWordError, validate_type_name as validate_reserved_word
+from type_bridge.validation import validate_type_name as validate_reserved_word
 
 if TYPE_CHECKING:
     from type_bridge.models.entity import Entity

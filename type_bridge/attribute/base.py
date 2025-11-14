@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from type_bridge.validation import ReservedWordError, validate_type_name as validate_reserved_word
+from type_bridge.validation import validate_type_name as validate_reserved_word
 
 if TYPE_CHECKING:
     from type_bridge.attribute.flags import TypeNameCase
