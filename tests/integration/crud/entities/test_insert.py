@@ -2,7 +2,7 @@
 
 import pytest
 
-from type_bridge import Card, Entity, EntityFlags, Flag, Integer, Key, String
+from type_bridge import Entity, EntityFlags, Flag, Integer, Key, String
 
 
 @pytest.mark.integration
@@ -32,6 +32,7 @@ def test_insert_single_entity(db_with_schema):
     results = manager.get(name="Alice")
     assert len(results) == 1
     assert results[0].name.value == "Alice"
+    assert isinstance(results[0].age, Age)
     assert results[0].age.value == 30
 
 

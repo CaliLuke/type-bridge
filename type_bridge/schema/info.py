@@ -19,6 +19,34 @@ class SchemaInfo:
         self.relations: list[type[Relation]] = []
         self.attribute_classes: set[type[Attribute]] = set()
 
+    def get_entity_by_name(self, name: str) -> type[Entity] | None:
+        """Get entity by type name.
+
+        Args:
+            name: Entity type name
+
+        Returns:
+            Entity class or None if not found
+        """
+        for entity in self.entities:
+            if entity.get_type_name() == name:
+                return entity
+        return None
+
+    def get_relation_by_name(self, name: str) -> type[Relation] | None:
+        """Get relation by type name.
+
+        Args:
+            name: Relation type name
+
+        Returns:
+            Relation class or None if not found
+        """
+        for relation in self.relations:
+            if relation.get_type_name() == name:
+                return relation
+        return None
+
     def to_typeql(self) -> str:
         """Generate TypeQL schema definition from collected schema information.
 

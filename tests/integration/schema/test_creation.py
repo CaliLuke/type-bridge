@@ -31,9 +31,11 @@ def test_schema_creation_and_sync(clean_db):
     # Verify schema was created by collecting it back
     schema_info = schema_manager.collect_schema_info()
 
-    assert "person" in schema_info.entities
-    assert "Name" in schema_info.attributes
-    assert "Age" in schema_info.attributes
+    entity_names = {e.get_type_name() for e in schema_info.entities}
+    assert "person" in entity_names
+    attr_names = {a.get_attribute_name() for a in schema_info.attribute_classes}
+    assert "Name" in attr_names
+    assert "Age" in attr_names
 
 
 @pytest.mark.integration
@@ -69,7 +71,8 @@ def test_schema_update_safe_changes(clean_db):
 
     # Verify new attribute was added
     schema_info = schema_manager2.collect_schema_info()
-    person_info = schema_info.entities["person"]
+    person_entity = [e for e in schema_info.entities if e.get_type_name() == "person"][0]
+    owned_attrs = person_entity.get_owned_attributes()
 
-    assert "Name" in person_info.owns
-    assert "Age" in person_info.owns
+    assert "name" in owned_attrs
+    assert "age" in owned_attrs

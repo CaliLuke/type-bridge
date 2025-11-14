@@ -6,7 +6,7 @@ and role names don't conflict with TypeQL reserved words/keywords.
 
 from typing import Literal
 
-from type_bridge.reserved_words import TYPEQL_RESERVED_WORDS, is_reserved_word
+from type_bridge.reserved_words import is_reserved_word
 
 
 class ValidationError(ValueError):

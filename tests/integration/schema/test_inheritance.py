@@ -32,11 +32,13 @@ def test_schema_inheritance(clean_db):
     # Verify schema
     schema_info = schema_manager.collect_schema_info()
 
-    assert "animal" in schema_info.entities
-    assert "dog" in schema_info.entities
+    entity_names = {e.get_type_name() for e in schema_info.entities}
+    assert "animal" in entity_names
+    assert "dog" in entity_names
 
     # Verify dog inherits from animal
-    dog_info = schema_info.entities["dog"]
-    # Dog should own both Name (inherited) and Species
-    assert "Name" in dog_info.owns
-    assert "Species" in dog_info.owns
+    dog_entity = [e for e in schema_info.entities if e.get_type_name() == "dog"][0]
+    dog_owned_attrs = dog_entity.get_owned_attributes()
+    # Dog should own both name (inherited) and species
+    assert "name" in dog_owned_attrs
+    assert "species" in dog_owned_attrs

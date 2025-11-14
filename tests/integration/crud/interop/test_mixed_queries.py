@@ -1,6 +1,6 @@
 """Integration tests for queries with mixed attribute types."""
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal as PyDecimal
 
 import pytest
@@ -217,7 +217,7 @@ def test_query_with_all_nine_types(clean_db):
         score=Score(88.5),
         birth_date=BirthDate(date(1992, 7, 10)),
         created_at=CreatedAt(datetime(2024, 1, 1, 10, 0, 0)),
-        updated_at=UpdatedAt(datetime(2024, 1, 2, 15, 30, 0, tzinfo=timezone.utc)),
+        updated_at=UpdatedAt(datetime(2024, 1, 2, 15, 30, 0, tzinfo=UTC)),
         balance=Balance(PyDecimal("5000.00")),
         session_time=SessionTime(timedelta(hours=2)),
     )

@@ -8,13 +8,8 @@ Run this example:
     uv run python examples/advanced/reserved_words_validation.py
 """
 
-from type_bridge import (
-    Entity, EntityFlags,
-    Relation, RelationFlags,
-    Role,
-    String, Integer
-)
-from type_bridge.validation import ReservedWordError, ValidationError
+from type_bridge import Entity, EntityFlags, Integer, Relation, RelationFlags, Role, String
+from type_bridge.validation import ReservedWordError
 
 
 def demonstrate_entity_validation():
@@ -37,7 +32,7 @@ def demonstrate_entity_validation():
             flags = EntityFlags(name="match")
         print("✓ Created entity with name 'match'")
     except ReservedWordError as e:
-        print(f"✗ Error creating 'match' entity:")
+        print("✗ Error creating 'match' entity:")
         print(f"  {str(e).split(chr(10))[0]}")  # First line of error
         print("  (This is expected - 'match' is a TypeQL keyword)")
 
@@ -72,7 +67,7 @@ def demonstrate_attribute_validation():
             attr_name = "string"  # 'string' is a TypeQL value type
         print("✓ Created attribute with name 'string'")
     except ReservedWordError as e:
-        print(f"✗ Error creating 'string' attribute:")
+        print("✗ Error creating 'string' attribute:")
         print(f"  {str(e).split(chr(10))[0]}")
         print("  (This is expected - 'string' is a TypeQL value type keyword)")
 
@@ -82,7 +77,7 @@ def demonstrate_attribute_validation():
             attr_name = "count"  # 'count' is a reduction keyword
         print("✓ Created attribute with name 'count'")
     except ReservedWordError as e:
-        print(f"✗ Error creating 'count' attribute:")
+        print("✗ Error creating 'count' attribute:")
         print(f"  {str(e).split(chr(10))[0]}")
         print("  (This is expected - 'count' is a TypeQL reduction keyword)")
 
@@ -109,7 +104,7 @@ def demonstrate_relation_validation():
             flags = RelationFlags(name="update")
         print("✓ Created relation with name 'update'")
     except ReservedWordError as e:
-        print(f"✗ Error creating 'update' relation:")
+        print("✗ Error creating 'update' relation:")
         print(f"  {str(e).split(chr(10))[0]}")
         print("  (This is expected - 'update' is a TypeQL data manipulation keyword)")
 
@@ -142,7 +137,7 @@ def demonstrate_role_validation():
         from_role = Role("from", Person)  # 'from' is a TypeQL keyword
         print("✓ Created role with name 'from'")
     except ReservedWordError as e:
-        print(f"✗ Error creating 'from' role:")
+        print("✗ Error creating 'from' role:")
         print(f"  {str(e).split(chr(10))[0]}")
         print("  (This is expected - 'from' is a TypeQL keyword)")
 
@@ -151,7 +146,7 @@ def demonstrate_role_validation():
         plays_role = Role("plays", Company)  # 'plays' is a TypeQL statement
         print("✓ Created role with name 'plays'")
     except ReservedWordError as e:
-        print(f"✗ Error creating 'plays' role:")
+        print("✗ Error creating 'plays' role:")
         print(f"  {str(e).split(chr(10))[0]}")
         print("  (This is expected - 'plays' is a TypeQL constraint statement)")
 

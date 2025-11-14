@@ -1,6 +1,7 @@
 """Pytest fixtures for integration tests."""
 
 import pytest
+from typedb.driver import DriverOptions
 
 from type_bridge import Credentials, Database, TypeDB
 
@@ -20,9 +21,10 @@ def typedb_driver():
         ConnectionError: If TypeDB server is not running
     """
     try:
-        driver = TypeDB.core_driver(
+        driver = TypeDB.driver(
             address=TEST_DB_ADDRESS,
-            credentials=Credentials(username="admin", password="password", tls_enabled=False),
+            credentials=Credentials(username="admin", password="password"),
+            driver_options=DriverOptions(is_tls_enabled=False),
         )
         yield driver
         driver.close()

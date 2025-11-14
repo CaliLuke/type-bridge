@@ -1,6 +1,6 @@
 """Integration tests for DateTimeTZ attribute CRUD operations."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -33,7 +33,7 @@ def test_datetimetz_insert(clean_db):
     # Insert event with DateTimeTZ
     event = Event(
         name=EventName("GlobalMeet"),
-        updated_at=UpdatedAt(datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)),
+        updated_at=UpdatedAt(datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)),
     )
     manager.insert(event)
 
@@ -41,7 +41,7 @@ def test_datetimetz_insert(clean_db):
     results = manager.get(name="GlobalMeet")
     assert len(results) == 1
     assert results[0].updated_at.value == datetime(
-        2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc
+        2024, 1, 15, 10, 30, 0, tzinfo=UTC
     )
 
 
@@ -73,20 +73,20 @@ def test_datetimetz_fetch(clean_db):
         Event(
             name=EventName("MorningSync"),
             updated_at=UpdatedAt(
-                datetime(2024, 2, 1, 9, 0, 0, tzinfo=timezone.utc)
+                datetime(2024, 2, 1, 9, 0, 0, tzinfo=UTC)
             ),
         ),
         Event(
             name=EventName("EveningReview"),
             updated_at=UpdatedAt(
-                datetime(2024, 3, 1, 18, 0, 0, tzinfo=timezone.utc)
+                datetime(2024, 3, 1, 18, 0, 0, tzinfo=UTC)
             ),
         ),
     ]
     manager.insert_many(events)
 
     # Fetch by DateTimeTZ value
-    results = manager.get(updated_at=datetime(2024, 2, 1, 9, 0, 0, tzinfo=timezone.utc))
+    results = manager.get(updated_at=datetime(2024, 2, 1, 9, 0, 0, tzinfo=UTC))
     assert len(results) == 1
     assert results[0].name.value == "MorningSync"
 
@@ -117,7 +117,7 @@ def test_datetimetz_update(clean_db):
     # Insert event
     event = Event(
         name=EventName("Standup"),
-        updated_at=UpdatedAt(datetime(2024, 4, 1, 10, 0, 0, tzinfo=timezone.utc)),
+        updated_at=UpdatedAt(datetime(2024, 4, 1, 10, 0, 0, tzinfo=UTC)),
     )
     manager.insert(event)
 
@@ -125,14 +125,14 @@ def test_datetimetz_update(clean_db):
     results = manager.get(name="Standup")
     event_fetched = results[0]
     event_fetched.updated_at = UpdatedAt(
-        datetime(2024, 4, 1, 10, 15, 0, tzinfo=timezone.utc)
+        datetime(2024, 4, 1, 10, 15, 0, tzinfo=UTC)
     )
     manager.update(event_fetched)
 
     # Verify update
     updated = manager.get(name="Standup")
     assert updated[0].updated_at.value == datetime(
-        2024, 4, 1, 10, 15, 0, tzinfo=timezone.utc
+        2024, 4, 1, 10, 15, 0, tzinfo=UTC
     )
 
 
@@ -162,13 +162,13 @@ def test_datetimetz_delete(clean_db):
     # Insert event
     event = Event(
         name=EventName("Retrospective"),
-        updated_at=UpdatedAt(datetime(2024, 5, 1, 15, 0, 0, tzinfo=timezone.utc)),
+        updated_at=UpdatedAt(datetime(2024, 5, 1, 15, 0, 0, tzinfo=UTC)),
     )
     manager.insert(event)
 
     # Delete by DateTimeTZ attribute
     deleted_count = manager.delete(
-        updated_at=datetime(2024, 5, 1, 15, 0, 0, tzinfo=timezone.utc)
+        updated_at=datetime(2024, 5, 1, 15, 0, 0, tzinfo=UTC)
     )
     assert deleted_count == 1
 

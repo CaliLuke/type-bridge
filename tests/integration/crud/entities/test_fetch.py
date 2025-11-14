@@ -32,6 +32,7 @@ def test_fetch_single_entity(db_with_schema):
 
     assert len(results) == 1
     assert results[0].name.value == "Alice"
+    assert isinstance(results[0].age, Age)
     assert results[0].age.value == 30
 
 
@@ -132,6 +133,7 @@ def test_chainable_query(db_with_schema):
     results = query.limit(1).execute()
 
     assert len(results) == 1
+    assert isinstance(results[0].age, Age)
     assert results[0].age.value == 22
 
     # Count query

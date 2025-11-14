@@ -68,6 +68,7 @@ def test_query_first_method(db_with_schema):
 
     assert result is not None
     assert result.name.value == "Alice"
+    assert isinstance(result.age, Age)
     assert result.age.value == 30
 
     # Query with no results

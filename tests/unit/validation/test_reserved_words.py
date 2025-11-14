@@ -2,9 +2,9 @@
 
 import pytest
 
-from type_bridge import Entity, EntityFlags, Relation, RelationFlags, Role, String, Integer
+from type_bridge import Entity, EntityFlags, Integer, Relation, RelationFlags, Role, String
+from type_bridge.reserved_words import get_reserved_words, is_reserved_word
 from type_bridge.validation import ReservedWordError, ValidationError, validate_type_name
-from type_bridge.reserved_words import is_reserved_word, get_reserved_words
 
 
 class TestReservedWordDetection:

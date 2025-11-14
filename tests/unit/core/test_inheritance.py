@@ -58,12 +58,14 @@ class TestInheritanceEdgeCases:
 
         # Should generate correct schema
         schema = ConcreteEntity.to_schema_definition()
+        assert schema is not None
         assert "entity concrete_entity sub base_entity" in schema
         assert "owns Name" in schema  # Name uses CLASS_NAME default
 
         # Base entity should also have correct schema
         base_schema = BaseEntity.to_schema_definition()
-        assert "entity base_entity, abstract" in base_schema
+        assert base_schema is not None
+        assert "entity base_entity @abstract" in base_schema
 
     def test_intermediate_base_class_name_default(self):
         """Test that intermediate class with default name gets validated."""
@@ -98,14 +100,17 @@ class TestInheritanceEdgeCases:
 
         # Check schema generation
         dog_schema = Dog.to_schema_definition()
+        assert dog_schema is not None
         assert "entity dog sub mammal" in dog_schema
 
         mammal_schema = Mammal.to_schema_definition()
+        assert mammal_schema is not None
         assert "entity mammal sub animal" in mammal_schema
         assert "abstract" in mammal_schema
 
         animal_schema = Animal.to_schema_definition()
-        assert "entity animal, abstract" in animal_schema
+        assert animal_schema is not None
+        assert "entity animal @abstract" in animal_schema
 
     def test_implicit_type_name_with_safe_class_name(self):
         """Test that implicit type names work when class name is safe."""
@@ -119,6 +124,7 @@ class TestInheritanceEdgeCases:
 
         assert Person.get_type_name() == "Person"  # CLASS_NAME default
         schema = Person.to_schema_definition()
+        assert schema is not None
         assert "entity Person" in schema  # CLASS_NAME default
 
     def test_relation_inheritance_edge_cases(self):
@@ -186,9 +192,11 @@ class TestInheritanceAttributePropagation:
 
         # Check schema generation
         animal_schema = Animal.to_schema_definition()
+        assert animal_schema is not None
         assert "owns Name" in animal_schema  # Name uses CLASS_NAME default
 
         dog_schema = Dog.to_schema_definition()
+        assert dog_schema is not None
         assert "entity dog sub animal" in dog_schema
         assert "owns Age" in dog_schema  # Age uses CLASS_NAME default
         # Dog schema DOES include "name" because get_owned_attributes() includes it

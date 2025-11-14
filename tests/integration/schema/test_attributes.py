@@ -28,8 +28,9 @@ def test_schema_with_unique_attributes(clean_db):
 
     # Verify schema
     schema_info = schema_manager.collect_schema_info()
-    user_info = schema_info.entities["user"]
+    user_entity = [e for e in schema_info.entities if e.get_type_name() == "user"][0]
+    owned_attrs = user_entity.get_owned_attributes()
 
     # Check key and unique flags
-    assert user_info.owns["Email"].is_key is True
-    assert user_info.owns["Username"].is_unique is True
+    assert owned_attrs["email"].flags.is_key is True
+    assert owned_attrs["username"].flags.is_unique is True

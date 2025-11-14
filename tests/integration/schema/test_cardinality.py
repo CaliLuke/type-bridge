@@ -32,13 +32,15 @@ def test_schema_with_cardinality(clean_db):
 
     # Verify schema
     schema_info = schema_manager.collect_schema_info()
-    person_info = schema_info.entities["person"]
+    person_entity = [e for e in schema_info.entities if e.get_type_name() == "person"][0]
+    owned_attrs = person_entity.get_owned_attributes()
 
     # Check attribute ownership
-    assert "Email" in person_info.owns
-    assert "Tag" in person_info.owns
-    assert "Score" in person_info.owns
+    assert "email" in owned_attrs
+    assert "tags" in owned_attrs
+    assert "scores" in owned_attrs
 
     # Check cardinality flags
-    assert person_info.owns["Tag"].is_key is False
-    assert person_info.owns["Tag"].card == (1, None)  # min=1, no max
+    assert owned_attrs["tags"].flags.is_key is False
+    assert owned_attrs["tags"].flags.card_min == 1
+    assert owned_attrs["tags"].flags.card_max is None  # unbounded
