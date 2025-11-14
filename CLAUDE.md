@@ -160,15 +160,16 @@ Characteristics:
 - **Isolated**: Test individual components in isolation
 - **No TypeDB required**: Use mocks and in-memory validation
 - **Run by default**: `pytest` runs unit tests only
-- **208 tests total**: Organized by functionality
+- **240 tests total**: Organized by functionality
 
 Coverage:
 - Core API: Entity/Relation creation, schema generation, inheritance (33 tests)
 - Attribute types: All 8 types with dedicated test files (115 tests)
   - Boolean, Date, DateTimeTZ, Decimal, Double, Duration, Integer, String
   - Mixed formatting tests for query generation
-- Flag system: Base flags, cardinality, type name cases (43 tests)
+- Flag system: Base flags, cardinality, type name cases (54 tests)
 - CRUD operations: Update API for single/multi-value attributes (6 tests)
+- Validation: Pydantic integration, keyword validation, type checking (32 tests)
 
 ### Integration Tests
 
