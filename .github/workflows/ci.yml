@@ -97,7 +97,7 @@ jobs:
         run: uv pip install pytest-xdist
 
       - name: Run unit tests in parallel
-        run: uv run pytest -v --tb=short -n auto
+        run: uv run pytest tests/unit/ -v --tb=short -n auto
 
   # Integration tests (require TypeDB server, parallel by test category)
   test-integration:
