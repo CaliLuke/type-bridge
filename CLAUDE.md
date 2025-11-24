@@ -42,10 +42,29 @@ type_bridge/
 │   ├── boolean.py        # Boolean attribute
 │   ├── datetime.py       # DateTime attribute
 │   └── flags.py          # Flag system (Key, Unique, Card, TypeFlags)
-├── models.py             # Base Entity and Relation classes
+├── models/               # Base Entity and Relation classes (modularized)
+│   ├── __init__.py       # Module exports
+│   ├── base.py           # Base model functionality
+│   ├── entity.py         # Entity class
+│   ├── relation.py       # Relation class
+│   ├── role.py           # Role definitions
+│   └── utils.py          # Model utilities
 ├── query.py              # TypeQL query builder
 ├── session.py            # Database connection and transaction management
-├── crud.py               # EntityManager and RelationManager for CRUD ops
+├── crud/                 # CRUD operations (modularized)
+│   ├── __init__.py       # Module exports (backward compatible)
+│   ├── base.py           # Type variables (E, R)
+│   ├── utils.py          # Shared utilities (format_value, is_multi_value_attribute)
+│   ├── entity/           # Entity CRUD operations
+│   │   ├── __init__.py   # Entity module exports
+│   │   ├── manager.py    # EntityManager class
+│   │   ├── query.py      # EntityQuery chainable queries
+│   │   └── group_by.py   # GroupByQuery for aggregations
+│   └── relation/         # Relation CRUD operations
+│       ├── __init__.py   # Relation module exports
+│       ├── manager.py    # RelationManager class
+│       ├── query.py      # RelationQuery chainable queries
+│       └── group_by.py   # RelationGroupByQuery for aggregations
 └── schema/               # Modular schema management
     ├── manager.py        # SchemaManager for schema operations
     ├── info.py           # SchemaInfo container
@@ -91,7 +110,6 @@ The project requires:
 
 ### User Documentation
 - **[README.md](README.md)** - Quick start guide for users
-- **[ABSTRACT_API.md](ABSTRACT_API.md)** - Abstract types and interface hierarchies
 
 ### Development Guides
 - **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development setup, commands, code quality standards
@@ -99,6 +117,7 @@ The project requires:
 
 ### TypeDB Integration
 - **[docs/TYPEDB.md](docs/TYPEDB.md)** - TypeDB concepts, driver API, TypeQL syntax, 3.x changes
+- **[docs/ABSTRACT_TYPES.md](docs/ABSTRACT_TYPES.md)** - Abstract types and interface hierarchies in TypeDB
 
 ### Architecture & Internals
 - **[docs/INTERNALS.md](docs/INTERNALS.md)** - Internal type system, ModelAttrInfo, modern Python standards
@@ -108,6 +127,7 @@ The project requires:
 - **[docs/api/attributes.md](docs/api/attributes.md)** - Attribute types and value types
 - **[docs/api/entities.md](docs/api/entities.md)** - Entity definition and ownership
 - **[docs/api/relations.md](docs/api/relations.md)** - Relations, roles, and role players
+- **[docs/api/abstract_types.md](docs/api/abstract_types.md)** - Abstract types implementation and patterns
 - **[docs/api/cardinality.md](docs/api/cardinality.md)** - Card API and Flag system
 - **[docs/api/crud.md](docs/api/crud.md)** - CRUD operations and managers
 - **[docs/api/queries.md](docs/api/queries.md)** - Query expressions and aggregations
@@ -124,23 +144,28 @@ The project requires:
 ### Basic Usage Pattern
 
 ```python
-from type_bridge import Entity, TypeFlags, String, Integer, Flag, Key
+from type_bridge import Entity, TypeFlags, AttributeFlags, String, Integer, Flag, Key
 
 # 1. Define attribute types
 class Name(String):
     pass
+
+# Override attribute type name (for legacy schemas)
+class EmailAddress(String):
+    flags = AttributeFlags(name="email")  # TypeDB: attribute email, value string;
 
 class Age(Integer):
     pass
 
 # 2. Define entity with ownership
 class Person(Entity):
-    flags = TypeFlags(type_name="person")
+    flags = TypeFlags(name="person")
     name: Name = Flag(Key)
+    email: EmailAddress
     age: Age | None = None  # Optional field
 
 # 3. Create instances (keyword arguments required)
-alice = Person(name=Name("Alice"), age=Age(30))
+alice = Person(name=Name("Alice"), email=EmailAddress("alice@example.com"), age=Age(30))
 
 # 4. CRUD operations
 person_manager = Person.manager(db)
@@ -151,9 +176,10 @@ persons = person_manager.all()
 ### Key Concepts
 
 1. **Attributes are independent types** - Define once, reuse across entities/relations
-2. **Use TypeFlags, not dunder attributes** - Clean API with `TypeFlags(type_name="person")`
-3. **Use Flag system** - `Flag(Key)`, `Flag(Unique)`, `Flag(Card(min=2))`
-4. **Python inheritance maps to TypeDB supertypes** - Use `abstract=True` for abstract types
-5. **Keyword-only arguments** - All Entity/Relation constructors require keyword arguments
+2. **Use TypeFlags for entities/relations** - Clean API with `TypeFlags(name="person")`
+3. **Use AttributeFlags for attributes** - Override names with `AttributeFlags(name="person_name")` or use case formatting with `AttributeFlags(case=TypeNameCase.SNAKE_CASE)`
+4. **Use Flag system** - `Flag(Key)`, `Flag(Unique)`, `Flag(Card(min=2))`
+5. **Python inheritance maps to TypeDB supertypes** - Use `abstract=True` for abstract types
+6. **Keyword-only arguments** - All Entity/Relation constructors require keyword arguments
 
 For detailed documentation, see the links above.

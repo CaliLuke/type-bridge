@@ -41,7 +41,7 @@ class Age(Integer):
 
 # 2. Define entity with ownership
 class Person(Entity):
-    flags = TypeFlags(type_name="person")
+    flags = TypeFlags(name="person")
     name: Name = Flag(Key)
     age: Age | None = None  # Optional field
 
@@ -77,7 +77,7 @@ Clean API with `TypeFlags`:
 
 ```python
 class Person(Entity):
-    flags = TypeFlags(type_name="person")  # Clean API
+    flags = TypeFlags(name="person")  # Clean API
 ```
 
 ### 3. Use Flag System for Annotations
@@ -147,4 +147,4 @@ For TypeDB integration details, see [../TYPEDB.md](../TYPEDB.md).
 
 For development guidelines, see [../DEVELOPMENT.md](../DEVELOPMENT.md).
 
-For abstract types, see [../../ABSTRACT_API.md](../../ABSTRACT_API.md).
+For abstract types implementation, see [abstract_types.md](abstract_types.md). For TypeDB abstract types concepts, see [../ABSTRACT_TYPES.md](../ABSTRACT_TYPES.md).

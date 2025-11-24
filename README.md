@@ -22,6 +22,7 @@ A modern, Pythonic ORM for [TypeDB](https://github.com/typedb/typedb) with an At
 - **Data Validation**: Automatic type checking and coercion via Pydantic, including keyword validation
 - **JSON Support**: Seamless JSON serialization/deserialization
 - **CRUD Operations**: Full CRUD with fetching API (get, filter, all, update) for entities and relations
+- **Chainable Operations**: Filter, delete, and bulk update with method chaining and lambda functions
 - **Query Builder**: Pythonic interface for building TypeQL queries
 
 ## Installation
@@ -66,20 +67,38 @@ class UpdatedAt(DateTimeTZ):  # Timezone-aware datetime
     pass
 ```
 
+**Configuring Attribute Type Names:**
+
+```python
+from type_bridge import AttributeFlags, TypeNameCase
+
+# Option 1: Explicit name override
+class Name(String):
+    flags = AttributeFlags(name="person_name")
+# TypeDB: attribute person_name, value string;
+
+# Option 2: Case formatting
+class UserEmail(String):
+    flags = AttributeFlags(case=TypeNameCase.SNAKE_CASE)
+# TypeDB: attribute user_email, value string;
+```
+
 ### 2. Define Entities
 
 ```python
 from type_bridge import Entity, TypeFlags, Flag, Key, Card
 
 class Person(Entity):
-    flags = TypeFlags(type_name="person")  # Optional, defaults to lowercase class name
+    flags = TypeFlags(name="person")  # Optional, defaults to lowercase class name
 
     # Use Flag() for key/unique markers and Card for cardinality
     name: Name = Flag(Key)                   # @key (implies @card(1..1))
     age: Age | None = None                   # @card(0..1) - optional field (explicit default)
     email: Email                             # @card(1..1) - default cardinality
-    tags: list[Tag] = Flag(Card(min=2))      # @card(2..) - two or more
+    tags: list[Tag] = Flag(Card(min=2))      # @card(2..) - two or more (unordered set)
 ```
+
+> **Note**: `list[Type]` represents an **unordered set** in TypeDB. TypeDB has no list type - order is never preserved.
 
 ### 3. Create Instances
 
@@ -134,7 +153,7 @@ Employment.manager(db).insert(employment)
 from type_bridge import Card, Flag
 
 class Person(Entity):
-    flags = TypeFlags(type_name="person")
+    flags = TypeFlags(name="person")
 
     # Cardinality options:
     name: Name                              # @card(1..1) - exactly one (default)
@@ -150,7 +169,7 @@ class Person(Entity):
 from type_bridge import Relation, TypeFlags, Role
 
 class Employment(Relation):
-    flags = TypeFlags(type_name="employment")
+    flags = TypeFlags(name="employment")
 
     # Define roles with type-safe Role[T] syntax
     employee: Role[Person] = Role("employee", Person)
@@ -174,8 +193,25 @@ class Dog(Animal):  # Automatically: dog sub animal in TypeDB
 
 ## Documentation
 
-- **Complete API Reference**: [docs/ATTRIBUTE_API.md](docs/ATTRIBUTE_API.md)
-- **Project Guidance**: [CLAUDE.md](CLAUDE.md) - Development guide and TypeDB concepts
+- **[CLAUDE.md](CLAUDE.md)** - Project guidance for development, TypeDB concepts, and quick reference
+- **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development setup, commands, and code quality standards
+- **[docs/TESTING.md](docs/TESTING.md)** - Testing strategy, patterns, and execution
+- **[docs/TYPEDB.md](docs/TYPEDB.md)** - TypeDB concepts, driver API, and TypeQL syntax
+- **[docs/ABSTRACT_TYPES.md](docs/ABSTRACT_TYPES.md)** - Abstract types and interface hierarchies in TypeDB
+- **[docs/INTERNALS.md](docs/INTERNALS.md)** - Internal type system and architecture
+
+### API Reference
+
+- **[docs/api/README.md](docs/api/README.md)** - API overview and quick reference
+- **[docs/api/attributes.md](docs/api/attributes.md)** - Attribute types and value types
+- **[docs/api/entities.md](docs/api/entities.md)** - Entity definition and ownership
+- **[docs/api/relations.md](docs/api/relations.md)** - Relations, roles, and role players
+- **[docs/api/abstract_types.md](docs/api/abstract_types.md)** - Abstract types implementation and patterns
+- **[docs/api/cardinality.md](docs/api/cardinality.md)** - Card API and Flag system
+- **[docs/api/crud.md](docs/api/crud.md)** - CRUD operations and managers
+- **[docs/api/queries.md](docs/api/queries.md)** - Query expressions and aggregations
+- **[docs/api/schema.md](docs/api/schema.md)** - Schema management and conflict detection
+- **[docs/api/validation.md](docs/api/validation.md)** - Pydantic integration and type safety
 
 ## Pydantic Integration
 
@@ -183,7 +219,7 @@ TypeBridge is built on Pydantic v2, giving you powerful features:
 
 ```python
 class Person(Entity):
-    flags = TypeFlags(type_name="person")
+    flags = TypeFlags(name="person")
     name: Name = Flag(Key)
     age: Age
 
@@ -226,7 +262,7 @@ TypeBridge uses a two-tier testing approach with **100% test pass rate**:
 
 ```bash
 # Unit tests (fast, no external dependencies) - DEFAULT
-uv run pytest                              # Run 284 unit tests (0.3s)
+uv run pytest                              # Run 291 unit tests (0.3s)
 uv run pytest tests/unit/attributes/ -v   # Test all 9 attribute types
 uv run pytest tests/unit/core/ -v         # Test core functionality
 uv run pytest tests/unit/flags/ -v        # Test flag system
@@ -237,7 +273,7 @@ uv run pytest tests/unit/expressions/ -v  # Test query expressions
 ./test-integration.sh                     # Starts Docker, runs tests, stops Docker
 
 # Option 2: Use existing TypeDB server
-USE_DOCKER=false uv run pytest -m integration -v  # Run 133 integration tests (~18s)
+USE_DOCKER=false uv run pytest -m integration -v  # Run 147 integration tests (~18s)
 
 # Run specific integration test categories
 uv run pytest tests/integration/crud/entities/ -v      # Entity CRUD tests
@@ -246,7 +282,7 @@ uv run pytest tests/integration/queries/ -v           # Query expression tests
 uv run pytest tests/integration/schema/ -v            # Schema operation tests
 
 # All tests
-uv run pytest -m "" -v                    # Run all 417 tests
+uv run pytest -m "" -v                    # Run all 438 tests
 ./test.sh                                 # Run full test suite with detailed output
 ./check.sh                                # Run linting and type checking
 ```
@@ -259,31 +295,9 @@ uv run pytest -m "" -v                    # Run all 417 tests
 - pydantic>=2.0.0
 - isodate==0.7.2 (for Duration type support)
 
-## What's New in v0.4.4
+## Release Notes
 
-### Bug Fixes
-- ✅ **Fixed inherited attributes in CRUD operations**: Insert and fetch now properly include inherited attributes from parent Entity/Relation classes
-- ✅ Added `get_all_attributes()` method to collect attributes from entire class hierarchy
-
-### API Improvements
-- ✅ **Unified TypeFlags API**: Removed deprecated `EntityFlags` and `RelationFlags` aliases - use `TypeFlags` for both
-- ✅ All examples updated to use unified TypeFlags API
-
-### Testing & Quality
-- ✅ **366 comprehensive tests** (264 unit, 102 integration) - 100% pass rate
-- ✅ Docker integration for automated test setup
-- ✅ Zero errors from Ruff and Pyright
-
-### Complete Type System
-- ✅ All 9 TypeDB value types: String, Integer, Double, Decimal, Boolean, Date, DateTime, DateTimeTZ, Duration
-- ✅ Temporal type conversions (DateTime ↔ DateTimeTZ with timezone handling)
-- ✅ ISO 8601 Duration support with calendar-aware arithmetic
-
-### Production-Ready Features
-- ✅ Type-safe CRUD operations with inheritance support
-- ✅ Chainable query builder with limit/offset/sort
-- ✅ Schema conflict detection and validation
-- ✅ Duplicate attribute type detection
+See the [CHANGELOG.md](CHANGELOG.md) for detailed release notes and version history.
 
 ## License
 

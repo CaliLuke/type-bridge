@@ -1,6 +1,6 @@
 # Testing Guide
 
-TypeBridge uses a comprehensive two-tier testing approach with **100% test pass rate (417/417 tests)**.
+TypeBridge uses a comprehensive two-tier testing approach with **100% test pass rate (422/422 tests)**.
 
 ## Table of Contents
 
@@ -26,7 +26,7 @@ TypeBridge employs a two-tier testing approach that balances speed, isolation, a
 - **Real database**: Require running TypeDB 3.x server
 - **End-to-end**: Test complete workflows from schema to queries
 - **Explicit execution**: Must use `pytest -m integration`
-- **133 tests total**: Full CRUD, schema, and query coverage
+- **138 tests total**: Full CRUD, schema, and query coverage
 
 ## Unit Tests
 
@@ -49,7 +49,8 @@ tests/unit/
 │   ├── test_duration.py      # Duration attribute type (ISO 8601)
 │   ├── test_formatting.py    # Mixed attribute formatting
 │   ├── test_integer.py       # Integer attribute type
-│   └── test_string.py        # String attribute type
+│   ├── test_string.py        # String attribute type
+│   └── test_multivalue_escaping.py # Multi-value string escaping
 ├── flags/                    # Flag system tests
 │   ├── test_base_flag.py     # Base flag for schema exclusion
 │   ├── test_cardinality.py   # Card API for cardinality constraints
@@ -121,6 +122,11 @@ uv run pytest --cov=type_bridge --cov-report=html
 - Type checking
 - Schema validation (duplicate attribute type detection)
 
+**String Escaping:**
+- Multi-value attribute escaping (quotes, backslashes, Unicode)
+- Edge cases: empty strings, single quotes, mixed escaping
+- TypeQL string literal formatting
+
 ## Integration Tests
 
 ### Overview
@@ -143,6 +149,7 @@ tests/integration/
 │   ├── attributes/           # Attribute type operations
 │   │   ├── test_all_types.py # All 9 attribute types
 │   │   ├── test_multi_value.py # Multi-value attributes
+│   │   ├── test_multivalue_escaping.py # String escaping edge cases
 │   │   └── test_conversions.py # DateTime/DateTimeTZ conversions
 │   └── interop/              # Cross-type operations
 │       ├── test_mixed_queries.py # Complex mixed queries
@@ -167,7 +174,7 @@ Integration tests require a running TypeDB 3.x server.
 
 ```bash
 # Run integration tests with Docker (automatic setup)
-./test-integration.sh                     # All 133 integration tests
+./test-integration.sh                     # All 138 integration tests
 ./test-integration.sh -v                  # With verbose output
 
 # Docker is automatically:
@@ -293,10 +300,10 @@ docker compose down -v
 uv run pytest                              # All 284 unit tests
 
 # Integration tests only (requires TypeDB)
-./test-integration.sh                     # All 133 integration tests with Docker
+./test-integration.sh                     # All 138 integration tests with Docker
 
 # All tests (unit + integration)
-uv run pytest -m ""                       # All 417 tests
+uv run pytest -m ""                       # All 422 tests
 ./test.sh                                 # Full test suite with detailed output
 ```
 
@@ -376,7 +383,7 @@ class TestFeature:
         """Test basic functionality."""
         # Arrange
         class Person(Entity):
-            flags = TypeFlags(type_name="person")
+            flags = TypeFlags(name="person")
             name: Name = Flag(Key)
 
         # Act
@@ -412,7 +419,7 @@ class Name(String):
 
 
 class Person(Entity):
-    flags = TypeFlags(type_name="person")
+    flags = TypeFlags(name="person")
     name: Name = Flag(Key)
 
 
