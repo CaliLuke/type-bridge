@@ -24,7 +24,7 @@ class Role[T: "Entity"]:
             employer: Role[Company] = Role("employer", Company)
     """
 
-    def __init__(self, role_name: str, player_type: type[T], *additional_player_types: type[Entity]):
+    def __init__(self, role_name: str, player_type: type[T], *additional_player_types: type[T]):
         """Initialize a role.
 
         Args:
@@ -39,12 +39,12 @@ class Role[T: "Entity"]:
         validate_reserved_word(role_name, "role")
 
         self.role_name = role_name
-        unique_types: list[type[Entity]] = []
+        unique_types: list[type[T]] = []
         for typ in (player_type, *additional_player_types):
             if typ not in unique_types:
                 unique_types.append(typ)
 
-        self.player_entity_types: tuple[type[Entity], ...] = tuple(unique_types)
+        self.player_entity_types: tuple[type[T], ...] = tuple(unique_types)
         # Backwards compatibility for existing single-player attributes
         self.player_entity_type = self.player_entity_types[0]
         # Get type name from the entity class(es)
@@ -86,11 +86,13 @@ class Role[T: "Entity"]:
         obj.__dict__[self.attr_name] = value
 
     @classmethod
-    def multi(cls, role_name: str, *player_types: type[Entity]) -> Role:
+    def multi(
+        cls, role_name: str, player_type: type[T], *additional_player_types: type[T]
+    ) -> Role[T]:
         """Define a role playable by multiple entity types."""
-        if len(player_types) < 2:
+        if len((player_type, *additional_player_types)) < 2:
             raise ValueError("Role.multi requires at least two player types")
-        return cls(role_name, player_types[0], *player_types[1:])
+        return cls(role_name, player_type, *additional_player_types)
 
     @classmethod
     def __get_pydantic_core_schema__(
