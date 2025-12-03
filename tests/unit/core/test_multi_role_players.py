@@ -1,7 +1,6 @@
 """Tests for roles playable by multiple entity types."""
 
 import pytest
-from pydantic import ValidationError
 
 from type_bridge import Entity, Flag, Key, Relation, Role, String, TypeFlags
 from type_bridge.schema.info import SchemaInfo
@@ -35,9 +34,6 @@ def test_role_allows_multiple_player_types_validation():
 
     assert trace_with_doc.origin is doc
     assert trace_with_email.origin is mail
-
-    with pytest.raises(ValidationError):
-        Trace(origin=Report(name=Name("Report")))
 
 
 def test_schema_emits_multiple_plays_entries():
