@@ -24,6 +24,7 @@ A modern, Pythonic ORM for [TypeDB](https://github.com/typedb/typedb) with an At
 - **CRUD Operations**: Full CRUD with fetching API (get, filter, all, update) for entities and relations
 - **Chainable Operations**: Filter, delete, and bulk update with method chaining and lambda functions
 - **Query Builder**: Pythonic interface for building TypeQL queries
+- **Multi-player Roles**: A single role can accept multiple entity types via `Role.multi(...)`
 
 ## Installation
 
@@ -178,6 +179,19 @@ class Employment(Relation):
     # Relations can own attributes
     position: Position                   # @card(1..1)
     salary: Salary | None = None         # @card(0..1) - explicit default
+
+# Multi-player role example (one role, multiple entity types)
+class Document(Entity):
+    flags = TypeFlags(name="document")
+    name: Name = Flag(Key)
+
+class Email(Entity):
+    flags = TypeFlags(name="email")
+    name: Name = Flag(Key)
+
+class Trace(Relation):
+    flags = TypeFlags(name="trace")
+    origin: Role[Document | Email] = Role.multi("origin", Document, Email)
 ```
 
 ### 7. Using Python Inheritance
@@ -262,7 +276,7 @@ TypeBridge uses a two-tier testing approach with **100% test pass rate**:
 
 ```bash
 # Unit tests (fast, no external dependencies) - DEFAULT
-uv run pytest                              # Run 304 unit tests (0.3s)
+uv run pytest                              # Run 309 unit tests (0.3s)
 uv run pytest tests/unit/attributes/ -v   # Test all 9 attribute types
 uv run pytest tests/unit/core/ -v         # Test core functionality
 uv run pytest tests/unit/flags/ -v        # Test flag system
@@ -273,7 +287,7 @@ uv run pytest tests/unit/expressions/ -v  # Test query expressions
 ./test-integration.sh                     # Starts Docker, runs tests, stops Docker
 
 # Option 2: Use existing TypeDB server
-USE_DOCKER=false uv run pytest -m integration -v  # Run 147 integration tests (~18s)
+USE_DOCKER=false uv run pytest -m integration -v  # Run 249 integration tests (~60s)
 
 # Run specific integration test categories
 uv run pytest tests/integration/crud/entities/ -v      # Entity CRUD tests
