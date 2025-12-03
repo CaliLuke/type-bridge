@@ -276,7 +276,7 @@ TypeBridge uses a two-tier testing approach with **100% test pass rate**:
 
 ```bash
 # Unit tests (fast, no external dependencies) - DEFAULT
-uv run pytest                              # Run 304 unit tests (0.3s)
+uv run pytest                              # Run 309 unit tests (0.3s)
 uv run pytest tests/unit/attributes/ -v   # Test all 9 attribute types
 uv run pytest tests/unit/core/ -v         # Test core functionality
 uv run pytest tests/unit/flags/ -v        # Test flag system
@@ -287,7 +287,7 @@ uv run pytest tests/unit/expressions/ -v  # Test query expressions
 ./test-integration.sh                     # Starts Docker, runs tests, stops Docker
 
 # Option 2: Use existing TypeDB server
-USE_DOCKER=false uv run pytest -m integration -v  # Run 147 integration tests (~18s)
+USE_DOCKER=false uv run pytest -m integration -v  # Run 249 integration tests (~60s)
 
 # Run specific integration test categories
 uv run pytest tests/integration/crud/entities/ -v      # Entity CRUD tests
