@@ -138,7 +138,7 @@ alice = Person(
 )
 Person.manager(db).insert(alice)
 
-# Or use PUT for idempotent insert (safe to run multiple times)
+# Or use PUT for idempotent insert (safe to run multiple times!)
 Person.manager(db).put(alice)  # Won't create duplicates
 
 # Insert relations - use typed instances
