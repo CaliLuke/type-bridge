@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeVar, dataclass_transform, get_origin, get_type_hints
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Self,
+    TypeVar,
+    dataclass_transform,
+    get_origin,
+    get_type_hints,
+)
 
 from pydantic import ConfigDict
 from pydantic._internal._model_construction import ModelMetaclass
 
-from type_bridge.attribute import AttributeFlags, TypeFlags
+from type_bridge.attribute import Attribute, AttributeFlags, TypeFlags
 from type_bridge.models.base import TypeDBType
 from type_bridge.models.utils import ModelAttrInfo, extract_metadata
 
@@ -395,6 +403,125 @@ class Entity(TypeDBType, metaclass=EntityMeta):
                     parts.append(f"has {attr_name} {self._format_value(value)}")
 
         return ", ".join(parts)
+
+    def to_dict(
+        self,
+        *,
+        include: set[str] | None = None,
+        exclude: set[str] | None = None,
+        by_alias: bool = False,
+        exclude_unset: bool = False,
+    ) -> dict[str, Any]:
+        """Serialize the entity to a primitive dict.
+
+        Args:
+            include: Optional set of field names to include.
+            exclude: Optional set of field names to exclude.
+            by_alias: When True, use attribute TypeQL names instead of Python field names.
+            exclude_unset: When True, omit fields that were never explicitly set.
+        """
+        include = include if include is not None else None
+        exclude = exclude or set()
+        attrs = self.get_all_attributes()
+        fields_set = self.model_fields_set if exclude_unset else set()
+        result: dict[str, Any] = {}
+
+        for field_name, attr_info in attrs.items():
+            if include is not None and field_name not in include:
+                continue
+            if field_name in exclude:
+                continue
+            if exclude_unset and field_name not in fields_set:
+                continue
+
+            raw_value = getattr(self, field_name, None)
+            key = attr_info.typ.get_attribute_name() if by_alias else field_name
+            if by_alias and key in result and key != field_name:
+                # Avoid collisions when multiple fields share the same attribute type
+                key = field_name
+            result[key] = self._unwrap_value(raw_value)
+
+        return result
+
+    @staticmethod
+    def _unwrap_value(value: Any) -> Any:
+        """Convert Attribute instances (or lists of them) to primitive values."""
+        if isinstance(value, list):
+            return [Entity._unwrap_value(item) for item in value]
+        if isinstance(value, Attribute):
+            return value.value
+        return value
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+        *,
+        field_mapping: dict[str, str] | None = None,
+        strict: bool = True,
+    ) -> Self:
+        """Construct an Entity from a plain dictionary.
+
+        Args:
+            data: External data to hydrate the Entity.
+            field_mapping: Optional mapping of external keys to internal field names.
+            strict: When True, raise on unknown fields; otherwise ignore them.
+        """
+        mapping = field_mapping or {}
+        attrs = cls.get_all_attributes()
+        alias_to_field = {info.typ.get_attribute_name(): name for name, info in attrs.items()}
+        normalized: dict[str, Any] = {}
+
+        for raw_key, raw_value in data.items():
+            internal_key = mapping.get(raw_key, raw_key)
+            if internal_key not in attrs and raw_key in alias_to_field:
+                internal_key = alias_to_field[raw_key]
+
+            if internal_key not in attrs:
+                if strict:
+                    raise ValueError(f"Unknown field '{raw_key}' for {cls.__name__}")
+                continue
+
+            if raw_value is None or (isinstance(raw_value, str) and raw_value == ""):
+                continue
+
+            attr_info = attrs[internal_key]
+            wrapped_value = cls._wrap_attribute_value(raw_value, attr_info)
+
+            if wrapped_value is None:
+                continue
+
+            normalized[internal_key] = wrapped_value
+
+        return cls(**normalized)
+
+    @staticmethod
+    def _wrap_attribute_value(value: Any, attr_info: ModelAttrInfo) -> Any:
+        """Wrap raw values using the attribute class, handling multi-value fields."""
+        attr_class = attr_info.typ
+
+        if attr_info.flags.has_explicit_card:
+            items = value if isinstance(value, list) else [value]
+            wrapped_items = []
+            for item in items:
+                if item is None or (isinstance(item, str) and item == ""):
+                    continue
+                wrapped_items.append(item if isinstance(item, attr_class) else attr_class(item))
+
+            return wrapped_items or None
+
+        if isinstance(value, list):
+            wrapped_items = []
+            for item in value:
+                if item is None or (isinstance(item, str) and item == ""):
+                    continue
+                wrapped_items.append(item if isinstance(item, attr_class) else attr_class(item))
+            return wrapped_items or None
+
+        if isinstance(value, attr_class):
+            return value
+
+        return attr_class(value)
 
     def __repr__(self) -> str:
         """Developer-friendly string representation of entity."""

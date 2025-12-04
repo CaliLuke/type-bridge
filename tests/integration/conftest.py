@@ -15,7 +15,7 @@ CONTAINER_TOOL = os.getenv("CONTAINER_TOOL", "docker")
 # Test database configuration
 TEST_DB_NAME = "type_bridge_test"
 # Allow overriding port/address via environment (for local conflicts or Podman/Docker remaps)
-TEST_DB_ADDRESS = os.getenv("TYPEDB_ADDRESS", "localhost:1729")
+TEST_DB_ADDRESS = os.getenv("TYPEDB_ADDRESS", "localhost:1730")
 
 
 @pytest.fixture(scope="session")
