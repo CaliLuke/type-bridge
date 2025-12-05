@@ -124,6 +124,18 @@ item = Artifact.from_dict(payload, field_mapping={"display-id": "display_id"})
 data = item.to_dict(by_alias=True)
 restored = Artifact.from_dict(data)
 assert restored == item
+
+# Field mapping and relaxed unknown handling
+payload = {
+    "display-id": "US-42",
+    "created-at": "2024-01-01T00:00:00Z",
+    "extra": "ignore me",
+}
+artifact = Artifact.from_dict(
+    payload,
+    field_mapping={"display-id": "display_id", "created-at": "created_at"},
+    strict=False,  # skip unknown "extra"
+)
 ```
 
 Behavior:
