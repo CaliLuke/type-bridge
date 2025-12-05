@@ -3,9 +3,11 @@
 import re
 from typing import Any
 
+from typedb.driver import TransactionType
+
 from type_bridge.models import Entity
 from type_bridge.query import QueryBuilder
-from type_bridge.session import Database
+from type_bridge.session import Database, Transaction
 
 
 class GroupByQuery[E: Entity]:
@@ -16,11 +18,12 @@ class GroupByQuery[E: Entity]:
 
     def __init__(
         self,
-        db: Database,
+        db: Database | Transaction | None,
         model_class: type[E],
         filters: dict[str, Any],
         expressions: list[Any],
         group_fields: tuple[Any, ...],
+        transaction: Transaction | None = None,
     ):
         """Initialize grouped query.
 
@@ -31,7 +34,13 @@ class GroupByQuery[E: Entity]:
             expressions: Expression-based filters
             group_fields: Fields to group by
         """
-        self.db = db
+        if isinstance(db, Transaction):
+            assert transaction is not None, "transaction is required when db is a Transaction"
+            self.db: Database | None = None
+            self.transaction = transaction
+        else:
+            self.db = db
+            self.transaction = transaction
         self.model_class = model_class
         self.filters = filters
         self._expressions = expressions
@@ -99,8 +108,7 @@ class GroupByQuery[E: Entity]:
         reduce_clause = ", ".join(reduce_clauses)
         reduce_query = f"{match_clause}\nreduce {reduce_clause} groupby {group_clause};"
 
-        with self.db.transaction("read") as tx:
-            results = tx.execute(reduce_query)
+        results = self._execute(reduce_query, TransactionType.READ)
 
         # Parse grouped results
         # TypeDB 3.x reduce with groupby returns formatted strings
@@ -161,3 +169,14 @@ class GroupByQuery[E: Entity]:
             output[group_key] = group_aggs
 
         return output
+
+    def _execute(self, query: str, tx_type: TransactionType) -> list[dict[str, Any]]:
+        """Execute a query using an existing transaction if provided."""
+        if self.transaction:
+            return self.transaction.execute(query)
+
+        if self.db is None:
+            raise RuntimeError("Database is required when no transaction is provided")
+
+        with self.db.transaction(tx_type) as tx:
+            return tx.execute(query)

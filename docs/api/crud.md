@@ -60,7 +60,37 @@ class EntityManager[E: Entity]:
 
     def update(self, entity: E) -> E:
         """Update entity in database."""
+
+    # Managers can be bound to an existing Transaction/TransactionContext
+    # Person.manager(tx) reuses the provided transaction
 ```
+
+### Sharing Transactions (Atomic Workflows)
+
+Use a shared transaction when you need multiple operations to commit together:
+
+```python
+from typedb.driver import TransactionType
+from type_bridge import Database, Person, Artifact
+
+db = Database(address="localhost:1730", database="mydb")
+
+with db.transaction(TransactionType.WRITE) as tx:
+    person_mgr = Person.manager(tx)     # reuses tx
+    artifact_mgr = Artifact.manager(tx) # same tx
+
+    alice = person_mgr.get(name=Name("Alice"))[0]
+    alice.age = Age(alice.age.value + 1)
+    person_mgr.update(alice)
+
+    artifact_mgr.insert(Artifact(display_id=DisplayId(f"AL-{alice.age.value}")))
+# commit happens automatically on context exit; rollback on exception
+```
+
+Notes:
+- `Database.transaction` returns a context manager; pass the returned context or its `transaction` to managers/queries.
+- Entity/Relation managers and queries automatically reuse the provided transaction instead of opening new ones.
+- READ transactions are never rolled back (no writes); WRITE/SCHEMA auto-commit on success and rollback on exception.
 
 ## Insert Operations
 

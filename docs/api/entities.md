@@ -35,6 +35,26 @@ class Entity:
     @classmethod
     def manager(cls, db: Database) -> EntityManager:
         """Creates a type-safe CRUD manager for this entity."""
+
+    def to_dict(
+        self,
+        *,
+        include: set[str] | None = None,
+        exclude: set[str] | None = None,
+        by_alias: bool = False,
+        exclude_unset: bool = False,
+    ) -> dict[str, Any]:
+        """Serialize to primitives with optional alias names."""
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+        *,
+        field_mapping: dict[str, str] | None = None,
+        strict: bool = True,
+    ) -> Self:
+        """Construct an entity from primitives with optional field mapping."""
 ```
 
 ## Basic Entity Definition
@@ -77,6 +97,53 @@ entity person,
     owns age @card(0..1),
     owns email @card(1..1);
 ```
+
+## Serialization Helpers
+
+Entities support safe round-trip serialization for API payloads and logs:
+
+```python
+person = Person(name=Name("Alice"), age=Age(30))
+
+# Default field names
+person.to_dict()
+# {'name': 'Alice', 'age': 30, 'email': None}
+
+# Alias names (uses AttributeFlags/name or case rules)
+person.to_dict(by_alias=True)
+
+# Include/exclude and unset handling
+person.to_dict(include={"name"})
+person.to_dict(exclude_unset=True)
+
+# From raw data with optional mapping
+payload = {"display-id": "US-1", "name": "Roadmap"}
+item = Artifact.from_dict(payload, field_mapping={"display-id": "display_id"})
+
+# Round-trip with aliases preserved
+data = item.to_dict(by_alias=True)
+restored = Artifact.from_dict(data)
+assert restored == item
+
+# Field mapping and relaxed unknown handling
+payload = {
+    "display-id": "US-42",
+    "created-at": "2024-01-01T00:00:00Z",
+    "extra": "ignore me",
+}
+artifact = Artifact.from_dict(
+    payload,
+    field_mapping={"display-id": "display_id", "created-at": "created_at"},
+    strict=False,  # skip unknown "extra"
+)
+```
+
+Behavior:
+- Unwraps Attribute instances to `.value`, handling lists.
+- `include`/`exclude` filter fields; `exclude_unset` hides fields never assigned.
+- `field_mapping` maps external keys to internal field names; `strict=False` ignores unknowns.
+- Empty strings/None are skipped during `from_dict`.
+- Backed by Pydantic `model_dump`/`model_construct` for consistent validation and alias handling.
 
 ## TypeFlags Configuration
 
