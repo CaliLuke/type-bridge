@@ -18,7 +18,7 @@ class GroupByQuery[E: Entity]:
 
     def __init__(
         self,
-        db: Database,
+        db: Database | Transaction | None,
         model_class: type[E],
         filters: dict[str, Any],
         expressions: list[Any],
@@ -34,12 +34,17 @@ class GroupByQuery[E: Entity]:
             expressions: Expression-based filters
             group_fields: Fields to group by
         """
-        self.db = db
+        if isinstance(db, Transaction):
+            assert transaction is not None, "transaction is required when db is a Transaction"
+            self.db: Database | None = None
+            self.transaction = transaction
+        else:
+            self.db = db
+            self.transaction = transaction
         self.model_class = model_class
         self.filters = filters
         self._expressions = expressions
         self.group_fields = group_fields
-        self.transaction = transaction
 
     def aggregate(self, *aggregates: Any) -> dict[Any, dict[str, Any]]:
         """Execute grouped aggregation.
@@ -169,6 +174,9 @@ class GroupByQuery[E: Entity]:
         """Execute a query using an existing transaction if provided."""
         if self.transaction:
             return self.transaction.execute(query)
+
+        if self.db is None:
+            raise RuntimeError("Database is required when no transaction is provided")
 
         with self.db.transaction(tx_type) as tx:
             return tx.execute(query)

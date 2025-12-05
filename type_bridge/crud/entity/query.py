@@ -25,7 +25,7 @@ class EntityQuery[E: Entity]:
 
     def __init__(
         self,
-        db: Database,
+        db: Database | Transaction,
         model_class: type[E],
         filters: dict[str, Any] | None = None,
         transaction: Transaction | None = None,
@@ -37,10 +37,16 @@ class EntityQuery[E: Entity]:
             model_class: Entity model class
             filters: Attribute filters (exact match) - optional, defaults to empty dict
         """
-        self.db = db
+        if isinstance(db, Transaction):
+            # Existing transaction supplied; we won't open new ones from this query.
+            assert transaction is not None, "transaction is required when db is a Transaction"
+            self.db: Database | None = None
+            self.transaction = transaction
+        else:
+            self.db = db
+            self.transaction = transaction
         self.model_class = model_class
         self.filters = filters or {}
-        self.transaction = transaction
         self._expressions: list[Any] = []  # Store Expression objects
         self._limit_value: int | None = None
         self._offset_value: int | None = None
@@ -295,6 +301,8 @@ class EntityQuery[E: Entity]:
                 query_str = self._build_update_query(entity)
                 self.transaction.execute(query_str)
         else:
+            if self.db is None:
+                raise RuntimeError("Database is required when no transaction is provided")
             with self.db.transaction(TransactionType.WRITE) as tx:
                 for entity in entities:
                     query_str = self._build_update_query(entity)
@@ -525,6 +533,9 @@ class EntityQuery[E: Entity]:
         """Execute a query using an existing transaction if available."""
         if self.transaction:
             return self.transaction.execute(query)
+
+        if self.db is None:
+            raise RuntimeError("Database is required when no transaction is provided")
 
         with self.db.transaction(tx_type) as tx:
             return tx.execute(query)

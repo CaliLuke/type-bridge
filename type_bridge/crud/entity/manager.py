@@ -22,13 +22,21 @@ class EntityManager[E: Entity]:
     Type-safe manager that preserves entity type information.
     """
 
-    def __init__(self, db: Database, model_class: type[E], transaction: Transaction | None = None):
+    def __init__(
+        self,
+        db: Database | Transaction,
+        model_class: type[E],
+        transaction: Transaction | None = None,
+    ):
         """Initialize entity manager.
 
         Args:
-            db: Database connection
+            db: Database connection (or Transaction when an existing transaction is supplied)
             model_class: Entity model class
         """
+        if isinstance(db, Transaction):
+            # When a Transaction is passed, a matching transaction must be provided for execution.
+            assert transaction is not None, "transaction is required when db is a Transaction"
         self.db = db
         self.model_class = model_class
         self.transaction = transaction
@@ -493,6 +501,9 @@ class EntityManager[E: Entity]:
         """Execute a query using existing transaction if provided."""
         if self.transaction:
             return self.transaction.execute(query)
+
+        if not isinstance(self.db, Database):
+            raise RuntimeError("Database is required when no transaction is provided")
 
         with self.db.transaction(tx_type) as tx:
             return tx.execute(query)

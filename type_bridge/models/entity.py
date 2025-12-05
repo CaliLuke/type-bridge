@@ -21,7 +21,7 @@ from type_bridge.models.utils import ModelAttrInfo, extract_metadata
 
 if TYPE_CHECKING:
     from type_bridge.crud import EntityManager
-    from type_bridge.session import Database
+    from type_bridge.session import Database, Transaction, TransactionContext
 
 # Type variable for self type
 E = TypeVar("E", bound="Entity")
@@ -288,11 +288,14 @@ class Entity(TypeDBType, metaclass=EntityMeta):
         return None
 
     @classmethod
-    def manager(cls: type[E], db: Any) -> EntityManager[E]:
+    def manager(
+        cls: type[E],
+        db: Database | Transaction | TransactionContext,
+    ) -> EntityManager[E]:
         """Create an EntityManager for this entity type.
 
         Args:
-            db: Database connection
+            db: Database connection or existing transaction/context
 
         Returns:
             EntityManager instance for this entity type with proper type information
@@ -313,14 +316,16 @@ class Entity(TypeDBType, metaclass=EntityMeta):
         from type_bridge.crud import EntityManager
         from type_bridge.session import Transaction, TransactionContext
 
-        transaction = None
-        db_conn = db
+        transaction: Transaction | None = None
 
         if isinstance(db, TransactionContext):
             transaction = db.transaction
-            db_conn = db.database
+            db_conn: Database | Transaction = db.database
         elif isinstance(db, Transaction):
             transaction = db
+            db_conn = db
+        else:
+            db_conn = db
 
         return EntityManager(db_conn, cls, transaction=transaction)
 
@@ -430,21 +435,19 @@ class Entity(TypeDBType, metaclass=EntityMeta):
             by_alias: When True, use attribute TypeQL names instead of Python field names.
             exclude_unset: When True, omit fields that were never explicitly set.
         """
-        include = include if include is not None else None
-        exclude = exclude or set()
+        # Let Pydantic handle include/exclude/exclude_unset, then unwrap Attribute values.
+        dumped = self.model_dump(
+            include=include,
+            exclude=exclude,
+            by_alias=False,
+            exclude_unset=exclude_unset,
+        )
+
         attrs = self.get_all_attributes()
-        fields_set = self.model_fields_set if exclude_unset else set()
         result: dict[str, Any] = {}
 
-        for field_name, attr_info in attrs.items():
-            if include is not None and field_name not in include:
-                continue
-            if field_name in exclude:
-                continue
-            if exclude_unset and field_name not in fields_set:
-                continue
-
-            raw_value = getattr(self, field_name, None)
+        for field_name, raw_value in dumped.items():
+            attr_info = attrs[field_name]
             key = attr_info.typ.get_attribute_name() if by_alias else field_name
             if by_alias and key in result and key != field_name:
                 # Avoid collisions when multiple fields share the same attribute type
