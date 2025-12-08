@@ -2,9 +2,11 @@
 
 from typing import TYPE_CHECKING, Any
 
+from typedb.driver import TransactionType
+
 from type_bridge.models import Relation
 from type_bridge.query import Query
-from type_bridge.session import Database
+from type_bridge.session import Connection, ConnectionExecutor
 
 from ..base import R
 from ..utils import format_value, is_multi_value_attribute
@@ -20,14 +22,15 @@ class RelationManager[R: Relation]:
     Type-safe manager that preserves relation type information.
     """
 
-    def __init__(self, db: Database, model_class: type[R]):
+    def __init__(self, connection: Connection, model_class: type[R]):
         """Initialize relation manager.
 
         Args:
-            db: Database connection
+            connection: Database, Transaction, or TransactionContext
             model_class: Relation model class
         """
-        self.db = db
+        self._connection = connection
+        self._executor = ConnectionExecutor(connection)
         self.model_class = model_class
 
     def insert(self, relation: R) -> R:
@@ -122,9 +125,7 @@ class RelationManager[R: Relation]:
         insert_clause = "insert\n" + insert_pattern + ";"
         query = match_clause + "\n" + insert_clause
 
-        with self.db.transaction("write") as tx:
-            tx.execute(query)
-            tx.commit()
+        self._execute(query, TransactionType.WRITE)
 
         return relation
 
@@ -226,9 +227,7 @@ class RelationManager[R: Relation]:
         put_clause = "put\n" + put_pattern + ";"
         query = match_clause + "\n" + put_clause
 
-        with self.db.transaction("write") as tx:
-            tx.execute(query)
-            tx.commit()
+        self._execute(query, TransactionType.WRITE)
 
         return relation
 
@@ -386,9 +385,7 @@ class RelationManager[R: Relation]:
             query_str = f"put\n{put_section};"
 
         # Execute the query
-        with self.db.transaction("write") as tx:
-            tx.execute(query_str)
-            tx.commit()
+        self._execute(query_str, TransactionType.WRITE)
 
         return relations
 
@@ -535,9 +532,7 @@ class RelationManager[R: Relation]:
 
         # Execute the query
         query_str = query.build()
-        with self.db.transaction("write") as tx:
-            tx.execute(query_str)
-            tx.commit()
+        self._execute(query_str, TransactionType.WRITE)
 
         return relations
 
@@ -642,15 +637,14 @@ class RelationManager[R: Relation]:
 
         query_str = f"match\n{match_str}\n{fetch_str}"
 
-        with self.db.transaction("read") as tx:
-            results = tx.execute(query_str)
+        results = self._execute(query_str, TransactionType.READ)
 
         # Convert results to relation instances
         relations = []
 
         for result in results:
             # Extract relation attributes (including inherited)
-            attrs = {}
+            attrs: dict[str, Any] = {}
             for field_name, attr_info in all_attrs.items():
                 attr_class = attr_info.typ
                 attr_name = attr_class.get_attribute_name()
@@ -690,7 +684,7 @@ class RelationManager[R: Relation]:
                             entity_class = candidate
                             break
                     # Extract player attributes (including inherited)
-                    player_attrs = {}
+                    player_attrs: dict[str, Any] = {}
                     for field_name, attr_info in entity_class.get_all_attributes().items():
                         attr_class = attr_info.typ
                         attr_name = attr_class.get_attribute_name()
@@ -861,10 +855,22 @@ class RelationManager[R: Relation]:
         relation_match = f"$r isa {self.model_class.get_type_name()} ({roles_str});"
         match_statements.insert(0, relation_match)
 
-        # Add match statements to bind multi-value attributes for deletion
+        # Add match statements to bind multi-value attributes for deletion with optional guards
         if multi_value_updates:
-            for attr_name in multi_value_updates:
-                match_statements.append(f"$r has {attr_name} ${attr_name};")
+            for attr_name, values in multi_value_updates.items():
+                keep_literals = [format_value(v) for v in dict.fromkeys(values)]
+                guard_lines = [
+                    f"not {{ ${attr_name} == {literal}; }};" for literal in keep_literals
+                ]
+                try_block = "\n".join(
+                    [
+                        "try {",
+                        f"  $r has {attr_name} ${attr_name};",
+                        *[f"  {g}" for g in guard_lines],
+                        "};",
+                    ]
+                )
+                match_statements.append(try_block)
 
         # Add match statements to bind single-value attributes for deletion
         if single_value_deletes:
@@ -880,7 +886,7 @@ class RelationManager[R: Relation]:
         delete_parts = []
         if multi_value_updates:
             for attr_name in multi_value_updates:
-                delete_parts.append(f"${attr_name} of $r;")
+                delete_parts.append(f"try {{ ${attr_name} of $r; }};")
         if single_value_deletes:
             for attr_name in single_value_deletes:
                 delete_parts.append(f"${attr_name} of $r;")
@@ -911,9 +917,7 @@ class RelationManager[R: Relation]:
         # Combine and execute
         full_query = "\n".join(query_parts)
 
-        with self.db.transaction("write") as tx:
-            tx.execute(full_query)
-            tx.commit()
+        self._execute(full_query, TransactionType.WRITE)
 
         return relation
 
@@ -1007,9 +1011,7 @@ class RelationManager[R: Relation]:
         query.match(pattern)
         query.delete("$r")
 
-        with self.db.transaction("write") as tx:
-            results = tx.execute(query.build())
-            tx.commit()
+        results = self._execute(query.build(), TransactionType.WRITE)
 
         return len(results) if results else 0
 
@@ -1061,10 +1063,14 @@ class RelationManager[R: Relation]:
                             f"Available attribute types: {', '.join(t.__name__ for t in owned_attr_types)}"
                         )
 
-        query = RelationQuery(self.db, self.model_class, filters if filters else None)
+        query = RelationQuery(self._connection, self.model_class, filters if filters else None)
         if expressions:
             query._expressions.extend(expressions)
         return query
+
+    def _execute(self, query: str, tx_type: TransactionType) -> list[dict[str, Any]]:
+        """Execute a query using an existing transaction when provided."""
+        return self._executor.execute(query, tx_type)
 
     def group_by(self, *fields: Any) -> "RelationGroupByQuery[R]":
         """Create a group-by query for aggregating by field values.
@@ -1087,4 +1093,4 @@ class RelationManager[R: Relation]:
         # Import here to avoid circular dependency
         from .group_by import RelationGroupByQuery
 
-        return RelationGroupByQuery(self.db, self.model_class, {}, [], fields)
+        return RelationGroupByQuery(self._connection, self.model_class, {}, [], fields)

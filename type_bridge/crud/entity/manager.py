@@ -1,10 +1,15 @@
 """Entity CRUD operations manager."""
 
+import re
 from typing import TYPE_CHECKING, Any
 
+from typedb.driver import TransactionType
+
+from type_bridge.attribute.string import String
+from type_bridge.expressions import AttributeExistsExpr, Expression
 from type_bridge.models import Entity
-from type_bridge.query import Query, QueryBuilder
-from type_bridge.session import Database
+from type_bridge.query import QueryBuilder
+from type_bridge.session import Connection, ConnectionExecutor
 
 from ..base import E
 from ..utils import format_value, is_multi_value_attribute
@@ -20,14 +25,19 @@ class EntityManager[E: Entity]:
     Type-safe manager that preserves entity type information.
     """
 
-    def __init__(self, db: Database, model_class: type[E]):
+    def __init__(
+        self,
+        connection: Connection,
+        model_class: type[E],
+    ):
         """Initialize entity manager.
 
         Args:
-            db: Database connection
+            connection: Database, Transaction, or TransactionContext
             model_class: Entity model class
         """
-        self.db = db
+        self._connection = connection
+        self._executor = ConnectionExecutor(connection)
         self.model_class = model_class
 
     def insert(self, entity: E) -> E:
@@ -50,9 +60,7 @@ class EntityManager[E: Entity]:
         """
         query = QueryBuilder.insert_entity(entity)
 
-        with self.db.transaction("write") as tx:
-            tx.execute(query.build())
-            tx.commit()
+        self._execute(query.build(), TransactionType.WRITE)
 
         return entity
 
@@ -84,9 +92,7 @@ class EntityManager[E: Entity]:
         pattern = entity.to_insert_query("$e")
         query = f"put\n{pattern};"
 
-        with self.db.transaction("write") as tx:
-            tx.execute(query)
-            tx.commit()
+        self._execute(query, TransactionType.WRITE)
 
         return entity
 
@@ -128,9 +134,35 @@ class EntityManager[E: Entity]:
         # Combine all patterns into a single put query
         query = "put\n" + ";\n".join(put_patterns) + ";"
 
-        with self.db.transaction("write") as tx:
-            tx.execute(query)
-            tx.commit()
+        self._execute(query, TransactionType.WRITE)
+
+        return entities
+
+    def update_many(self, entities: list[E]) -> list[E]:
+        """Update multiple entities within a single transaction.
+
+        Uses an existing transaction when supplied, otherwise opens one write
+        transaction and reuses it for all updates to avoid N separate commits.
+
+        Args:
+            entities: Entity instances to update
+
+        Returns:
+            The list of updated entities
+        """
+        if not entities:
+            return []
+
+        if self._executor.has_transaction:
+            for entity in entities:
+                self.update(entity)
+            return entities
+
+        assert self._executor.database is not None
+        with self._executor.database.transaction(TransactionType.WRITE) as tx_ctx:
+            temp_manager = EntityManager(tx_ctx, self.model_class)
+            for entity in entities:
+                temp_manager.update(entity)
 
         return entities
 
@@ -167,9 +199,7 @@ class EntityManager[E: Entity]:
         # Combine all patterns into a single insert query
         query = "insert\n" + ";\n".join(insert_patterns) + ";"
 
-        with self.db.transaction("write") as tx:
-            tx.execute(query)
-            tx.commit()
+        self._execute(query, TransactionType.WRITE)
 
         return entities
 
@@ -185,8 +215,7 @@ class EntityManager[E: Entity]:
         query = QueryBuilder.match_entity(self.model_class, **filters)
         query.fetch("$e")  # Fetch all attributes with $e.*
 
-        with self.db.transaction("read") as tx:
-            results = tx.execute(query.build())
+        results = self._execute(query.build(), TransactionType.READ)
 
         # Convert results to entity instances
         entities = []
@@ -227,6 +256,12 @@ class EntityManager[E: Entity]:
         # Import here to avoid circular dependency
         from .query import EntityQuery
 
+        base_filters: dict[str, Any] = {}
+        lookup_expressions: list[Any] = []
+
+        if filters:
+            base_filters, lookup_expressions = self._parse_lookup_filters(filters)
+
         # Validate expressions reference owned attribute types (including inherited)
         if expressions:
             owned_attrs = self.model_class.get_all_attributes()
@@ -244,9 +279,15 @@ class EntityManager[E: Entity]:
                             f"Available attribute types: {', '.join(t.__name__ for t in owned_attr_types)}"
                         )
 
-        query = EntityQuery(self.db, self.model_class, filters if filters else None)
+        query = EntityQuery(
+            self._connection,
+            self.model_class,
+            base_filters if base_filters else None,
+        )
         if expressions:
             query._expressions.extend(expressions)
+        if lookup_expressions:
+            query._expressions.extend(lookup_expressions)
         return query
 
     def group_by(self, *fields: Any) -> "GroupByQuery[E]":
@@ -270,7 +311,99 @@ class EntityManager[E: Entity]:
         # Import here to avoid circular dependency
         from .group_by import GroupByQuery
 
-        return GroupByQuery(self.db, self.model_class, {}, [], fields)
+        return GroupByQuery(self._connection, self.model_class, {}, [], fields)
+
+    def _parse_lookup_filters(self, filters: dict[str, Any]) -> tuple[dict[str, Any], list[Any]]:
+        """Parse Django-style lookup filters into base filters and expressions."""
+
+        owned_attrs = self.model_class.get_all_attributes()
+        base_filters: dict[str, Any] = {}
+        expressions: list[Any] = []
+
+        for raw_key, raw_value in filters.items():
+            if "__" not in raw_key:
+                if raw_key not in owned_attrs:
+                    raise ValueError(
+                        f"Unknown filter field '{raw_key}' for {self.model_class.__name__}"
+                    )
+                if "__" in raw_key:
+                    raise ValueError(
+                        "Attribute names cannot contain '__' when using lookup filters"
+                    )
+                base_filters[raw_key] = raw_value
+                continue
+
+            field_name, lookup = raw_key.split("__", 1)
+            if field_name not in owned_attrs:
+                raise ValueError(
+                    f"Unknown filter field '{field_name}' for {self.model_class.__name__}"
+                )
+            if "__" in field_name:
+                raise ValueError("Attribute names cannot contain '__' when using lookup filters")
+
+            attr_info = owned_attrs[field_name]
+            attr_type = attr_info.typ
+
+            # Normalize raw_value into Attribute instance for comparison/string ops
+            def _wrap(value: Any):
+                if isinstance(value, attr_type):
+                    return value
+                return attr_type(value)
+
+            if lookup in ("exact", "eq"):
+                base_filters[field_name] = raw_value
+                continue
+
+            if lookup in ("gt", "gte", "lt", "lte"):
+                if not hasattr(attr_type, lookup):
+                    raise ValueError(f"Lookup '{lookup}' not supported for {attr_type.__name__}")
+                wrapped = _wrap(raw_value)
+                expressions.append(getattr(attr_type, lookup)(wrapped))
+                continue
+
+            if lookup == "in":
+                if not isinstance(raw_value, (list, tuple, set)):
+                    raise ValueError("__in lookup requires an iterable of values")
+                values = list(raw_value)
+                if not values:
+                    raise ValueError("__in lookup requires a non-empty iterable")
+                eq_exprs = [attr_type.eq(_wrap(v)) for v in values]
+                # Fold into OR chain
+                expr: Expression = eq_exprs[0]
+                for e in eq_exprs[1:]:
+                    expr = expr.or_(e)
+                expressions.append(expr)
+                continue
+
+            if lookup == "isnull":
+                if not isinstance(raw_value, bool):
+                    raise ValueError("__isnull lookup expects a boolean")
+                expressions.append(AttributeExistsExpr(attr_type, present=not raw_value))
+                continue
+
+            if lookup in ("contains", "startswith", "endswith", "regex"):
+                if not issubclass(attr_type, String):
+                    raise ValueError(
+                        f"String lookup '{lookup}' requires a String attribute (got {attr_type.__name__})"
+                    )
+                # Normalize to raw string
+                raw_str = raw_value.value if hasattr(raw_value, "value") else str(raw_value)
+
+                if lookup == "contains":
+                    expressions.append(attr_type.contains(attr_type(raw_str)))
+                elif lookup == "regex":
+                    expressions.append(attr_type.regex(attr_type(raw_str)))
+                elif lookup == "startswith":
+                    pattern = f"^{re.escape(raw_str)}.*"
+                    expressions.append(attr_type.regex(attr_type(pattern)))
+                elif lookup == "endswith":
+                    pattern = f".*{re.escape(raw_str)}$"
+                    expressions.append(attr_type.regex(attr_type(pattern)))
+                continue
+
+            raise ValueError(f"Unsupported lookup operator '{lookup}'")
+
+        return base_filters, expressions
 
     def all(self) -> list[E]:
         """Get all entities of this type.
@@ -289,26 +422,80 @@ class EntityManager[E: Entity]:
         Returns:
             Number of entities deleted
         """
-        # First match the entities
-        query = Query()
-        pattern_parts = [f"$e isa {self.model_class.get_type_name()}"]
+        return self.delete_many(**filters)
 
-        # Get all attributes (including inherited) to map field names to attribute type names
+    def delete_many(self, **filters) -> int:
+        """Bulk delete entities matching filters in a single query.
+
+        Supports ``__in`` lookups (e.g., ``id__in=[1, 2, 3]``) by expanding
+        into a disjunction of match patterns.
+
+        Args:
+            filters: Attribute filters supporting ``__in`` suffix for lists
+
+        Returns:
+            Number of entities deleted
+        """
         owned_attrs = self.model_class.get_all_attributes()
+        base_parts = [f"$e isa {self.model_class.get_type_name()}"]
+        normal_filters: list[str] = []
+        in_filters: list[tuple[str, list[Any]]] = []
+
         for field_name, field_value in filters.items():
-            if field_name in owned_attrs:
+            if field_name.endswith("__in"):
+                attr_field = field_name[:-4]
+                if attr_field in owned_attrs:
+                    values = (
+                        list(field_value)
+                        if isinstance(field_value, (list, tuple, set))
+                        else [field_value]
+                    )
+                    # If the list is empty, nothing to delete
+                    if not values:
+                        return 0
+
+                    attr_name = owned_attrs[attr_field].typ.get_attribute_name()
+                    in_filters.append((attr_name, values))
+            elif field_name in owned_attrs:
                 attr_info = owned_attrs[field_name]
                 attr_name = attr_info.typ.get_attribute_name()
                 formatted_value = format_value(field_value)
-                pattern_parts.append(f"has {attr_name} {formatted_value}")
+                normal_filters.append(f"has {attr_name} {formatted_value}")
 
-        pattern = ", ".join(pattern_parts)
-        query.match(pattern)
-        query.delete("$e")
+        base_pattern = ", ".join(base_parts + normal_filters)
 
-        with self.db.transaction("write") as tx:
-            results = tx.execute(query.build())
-            tx.commit()
+        # Expand __in filters into a set of concrete patterns
+        def expand_patterns(prefix: str, remaining: list[tuple[str, list[Any]]]) -> list[str]:
+            if not remaining:
+                return [prefix]
+
+            attr_name, values = remaining[0]
+            tail = remaining[1:]
+            expanded: list[str] = []
+            for value in values:
+                formatted_value = format_value(value)
+                next_prefix = (
+                    f"{prefix}, has {attr_name} {formatted_value}"
+                    if prefix
+                    else f"has {attr_name} {formatted_value}"
+                )
+                expanded.extend(expand_patterns(next_prefix, tail))
+            return expanded
+
+        match_patterns = expand_patterns(base_pattern, in_filters)
+
+        if not match_patterns:
+            return 0
+
+        if len(match_patterns) == 1:
+            match_section = f"match\n{match_patterns[0]};"
+        else:
+            disjunction = " or ".join(f"{{ {pattern}; }}" for pattern in match_patterns)
+            match_section = f"match\n{disjunction};"
+
+        query_str = f"{match_section}\ndelete\n$e;"
+
+        results = self._execute(query_str, TransactionType.WRITE)
 
         return len(results) if results else 0
 
@@ -421,10 +608,22 @@ class EntityManager[E: Entity]:
             entity_match_parts.append(f"has {attr_name} {formatted_value}")
         match_statements.append(", ".join(entity_match_parts) + ";")
 
-        # Add match statements to bind multi-value attributes for deletion
+        # Add match statements to bind multi-value attributes for deletion with optional guards
         if multi_value_updates:
-            for attr_name in multi_value_updates:
-                match_statements.append(f"$e has {attr_name} ${attr_name};")
+            for attr_name, values in multi_value_updates.items():
+                keep_literals = [format_value(v) for v in dict.fromkeys(values)]
+                guard_lines = [
+                    f"not {{ ${attr_name} == {literal}; }};" for literal in keep_literals
+                ]
+                try_block = "\n".join(
+                    [
+                        "try {",
+                        f"  $e has {attr_name} ${attr_name};",
+                        *[f"  {g}" for g in guard_lines],
+                        "};",
+                    ]
+                )
+                match_statements.append(try_block)
 
         # Add match statements to bind single-value attributes for deletion
         if single_value_deletes:
@@ -438,7 +637,7 @@ class EntityManager[E: Entity]:
         delete_parts = []
         if multi_value_updates:
             for attr_name in multi_value_updates:
-                delete_parts.append(f"${attr_name} of $e;")
+                delete_parts.append(f"try {{ ${attr_name} of $e; }};")
         if single_value_deletes:
             for attr_name in single_value_deletes:
                 delete_parts.append(f"${attr_name} of $e;")
@@ -468,9 +667,7 @@ class EntityManager[E: Entity]:
         # Combine and execute
         full_query = "\n".join(query_parts)
 
-        with self.db.transaction("write") as tx:
-            tx.execute(full_query)
-            tx.commit()
+        self._execute(full_query, TransactionType.WRITE)
 
         return entity
 
@@ -496,3 +693,7 @@ class EntityManager[E: Entity]:
                 is_multi_value = is_multi_value_attribute(attr_info.flags)
                 attrs[field_name] = [] if is_multi_value else None
         return attrs
+
+    def _execute(self, query: str, tx_type: TransactionType) -> list[dict[str, Any]]:
+        """Execute a query using existing transaction if provided."""
+        return self._executor.execute(query, tx_type)

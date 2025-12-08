@@ -3,9 +3,11 @@
 import re
 from typing import Any
 
+from typedb.driver import TransactionType
+
 from type_bridge.models import Entity
 from type_bridge.query import QueryBuilder
-from type_bridge.session import Database
+from type_bridge.session import Connection, ConnectionExecutor
 
 
 class GroupByQuery[E: Entity]:
@@ -16,7 +18,7 @@ class GroupByQuery[E: Entity]:
 
     def __init__(
         self,
-        db: Database,
+        connection: Connection,
         model_class: type[E],
         filters: dict[str, Any],
         expressions: list[Any],
@@ -25,13 +27,13 @@ class GroupByQuery[E: Entity]:
         """Initialize grouped query.
 
         Args:
-            db: Database connection
+            connection: Database, Transaction, or TransactionContext
             model_class: Entity model class
             filters: Dict-based filters
             expressions: Expression-based filters
             group_fields: Fields to group by
         """
-        self.db = db
+        self._executor = ConnectionExecutor(connection)
         self.model_class = model_class
         self.filters = filters
         self._expressions = expressions
@@ -99,8 +101,7 @@ class GroupByQuery[E: Entity]:
         reduce_clause = ", ".join(reduce_clauses)
         reduce_query = f"{match_clause}\nreduce {reduce_clause} groupby {group_clause};"
 
-        with self.db.transaction("read") as tx:
-            results = tx.execute(reduce_query)
+        results = self._execute(reduce_query, TransactionType.READ)
 
         # Parse grouped results
         # TypeDB 3.x reduce with groupby returns formatted strings
@@ -127,7 +128,7 @@ class GroupByQuery[E: Entity]:
             ]
 
             # Separate group keys from aggregation values
-            group_keys = []
+            group_keys: list[Any] = []
             group_aggs = {}
 
             for var_name, value_str in all_matches:
@@ -154,10 +155,14 @@ class GroupByQuery[E: Entity]:
 
             # Create group key (single value or tuple)
             if len(group_keys) == 1:
-                group_key = group_keys[0]
+                group_key: Any = group_keys[0]
             else:
                 group_key = tuple(group_keys)
 
             output[group_key] = group_aggs
 
         return output
+
+    def _execute(self, query: str, tx_type: TransactionType) -> list[dict[str, Any]]:
+        """Execute a query using an existing transaction if provided."""
+        return self._executor.execute(query, tx_type)

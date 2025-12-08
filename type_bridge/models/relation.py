@@ -22,7 +22,7 @@ from type_bridge.models.utils import ModelAttrInfo, extract_metadata
 
 if TYPE_CHECKING:
     from type_bridge.crud import RelationManager
-    from type_bridge.session import Database
+    from type_bridge.session import Connection
 
 # Type variable for self type
 R = TypeVar("R", bound="Relation")
@@ -288,11 +288,11 @@ class Relation(TypeDBType, metaclass=RelationMeta):
         return None
 
     @classmethod
-    def manager(cls: type[R], db: Any) -> RelationManager[R]:
+    def manager(cls: type[R], connection: Connection) -> RelationManager[R]:
         """Create a RelationManager for this relation type.
 
         Args:
-            db: Database connection
+            connection: Database, Transaction, or TransactionContext
 
         Returns:
             RelationManager instance for this relation type with proper type information
@@ -316,7 +316,7 @@ class Relation(TypeDBType, metaclass=RelationMeta):
         """
         from type_bridge.crud import RelationManager
 
-        return RelationManager(db, cls)
+        return RelationManager(connection, cls)
 
     def to_insert_query(self, var: str = "$r") -> str:
         """Generate TypeQL insert query for this relation instance.
@@ -368,11 +368,11 @@ class Relation(TypeDBType, metaclass=RelationMeta):
 
         return ", ".join(parts)
 
-    def insert(self: R, db: Database) -> R:
+    def insert(self: R, connection: Connection) -> R:
         """Insert this relation instance into the database.
 
         Args:
-            db: Database connection
+            connection: Database, Transaction, or TransactionContext
 
         Returns:
             Self for chaining
@@ -386,8 +386,7 @@ class Relation(TypeDBType, metaclass=RelationMeta):
             )
             employment.insert(db)
         """
-        # Use manager to insert
-        manager = self.__class__.manager(db)
+        manager = self.__class__.manager(connection)
         manager.insert(self)
         return self
 

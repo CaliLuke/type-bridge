@@ -2,8 +2,10 @@
 
 from typing import Any
 
+from typedb.driver import TransactionType
+
 from type_bridge.models import Relation
-from type_bridge.session import Database
+from type_bridge.session import Connection, ConnectionExecutor
 
 from ..utils import format_value
 
@@ -16,7 +18,7 @@ class RelationGroupByQuery[R: Relation]:
 
     def __init__(
         self,
-        db: Database,
+        connection: Connection,
         model_class: type[R],
         filters: dict[str, Any],
         expressions: list[Any],
@@ -25,13 +27,13 @@ class RelationGroupByQuery[R: Relation]:
         """Initialize grouped query.
 
         Args:
-            db: Database connection
+            connection: Database, Transaction, or TransactionContext
             model_class: Relation model class
             filters: Dict-based filters
             expressions: Expression-based filters
             group_fields: Fields to group by
         """
-        self.db = db
+        self._executor = ConnectionExecutor(connection)
         self.model_class = model_class
         self.filters = filters
         self._expressions = expressions
@@ -147,8 +149,7 @@ class RelationGroupByQuery[R: Relation]:
         reduce_clause = ", ".join(reduce_clauses)
         reduce_query = f"match\n{match_clause}\nreduce {reduce_clause} groupby {group_clause};"
 
-        with self.db.transaction("read") as tx:
-            results = tx.execute(reduce_query)
+        results = self._execute(reduce_query, TransactionType.READ)
 
         # Parse grouped results
         import re
@@ -208,3 +209,7 @@ class RelationGroupByQuery[R: Relation]:
             output[group_key] = group_aggs
 
         return output
+
+    def _execute(self, query: str, tx_type: TransactionType) -> list[dict[str, Any]]:
+        """Execute a query using an existing transaction if provided."""
+        return self._executor.execute(query, tx_type)

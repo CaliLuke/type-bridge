@@ -2,9 +2,11 @@
 
 from typing import TYPE_CHECKING, Any
 
+from typedb.driver import TransactionType
+
 from type_bridge.models import Relation
 from type_bridge.query import Query
-from type_bridge.session import Database
+from type_bridge.session import Connection, ConnectionExecutor
 
 from ..base import R
 from ..utils import format_value, is_multi_value_attribute
@@ -20,15 +22,21 @@ class RelationQuery[R: Relation]:
     Supports both dictionary filters (exact match) and expression-based filters.
     """
 
-    def __init__(self, db: Database, model_class: type[R], filters: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        connection: Connection,
+        model_class: type[R],
+        filters: dict[str, Any] | None = None,
+    ):
         """Initialize relation query.
 
         Args:
-            db: Database connection
+            connection: Database, Transaction, or TransactionContext
             model_class: Relation model class
             filters: Attribute and role player filters (exact match) - optional
         """
-        self.db = db
+        self._connection = connection
+        self._executor = ConnectionExecutor(connection)
         self.model_class = model_class
         self.filters = filters or {}
         self._expressions: list[Any] = []  # Store Expression objects
@@ -226,15 +234,14 @@ class RelationQuery[R: Relation]:
         fetch_str = f"fetch {{\n  {fetch_body}\n}};"
         query_str = f"match\n{match_str}{sort_clause}{pagination_clause}\n{fetch_str}"
 
-        with self.db.transaction("read") as tx:
-            results = tx.execute(query_str)
+        results = self._execute(query_str, TransactionType.READ)
 
         # Convert results to relation instances
         relations = []
 
         for result in results:
             # Extract relation attributes (including inherited)
-            attrs = {}
+            attrs: dict[str, Any] = {}
             for field_name, attr_info in all_attrs.items():
                 attr_class = attr_info.typ
                 attr_name = attr_class.get_attribute_name()
@@ -274,7 +281,7 @@ class RelationQuery[R: Relation]:
                             entity_class = candidate
                             break
                     # Extract player attributes (including inherited)
-                    player_attrs = {}
+                    player_attrs: dict[str, Any] = {}
                     for field_name, attr_info in entity_class.get_all_attributes().items():
                         attr_class = attr_info.typ
                         attr_name = attr_class.get_attribute_name()
@@ -437,9 +444,7 @@ class RelationQuery[R: Relation]:
         query.delete("$r")
 
         # Execute in single transaction
-        with self.db.transaction("write") as tx:
-            results = tx.execute(query.build())
-            tx.commit()
+        results = self._execute(query.build(), TransactionType.WRITE)
 
         return len(results) if results else 0
 
@@ -503,12 +508,19 @@ class RelationQuery[R: Relation]:
             func(relation)
 
         # Update all relations in a single transaction
-        with self.db.transaction("write") as tx:
+        if self._executor.has_transaction:
+            tx = self._executor.transaction
+            assert tx is not None
             for relation, original in zip(relations, original_values):
-                # Build update query for this relation using original values for matching
                 query_str = self._build_update_query(relation, original)
                 tx.execute(query_str)
-            tx.commit()
+        else:
+            db = self._executor.database
+            assert db is not None
+            with db.transaction(TransactionType.WRITE) as tx:
+                for relation, original in zip(relations, original_values):
+                    query_str = self._build_update_query(relation, original)
+                    tx.execute(query_str)
 
         return relations
 
@@ -782,8 +794,7 @@ class RelationQuery[R: Relation]:
         # Convert match to reduce query
         reduce_query = f"match\n{match_clause}\nreduce {', '.join(reduce_clauses)};"
 
-        with self.db.transaction("read") as tx:
-            results = tx.execute(reduce_query)
+        results = self._execute(reduce_query, TransactionType.READ)
 
         # Parse aggregation results
         if not results:
@@ -818,6 +829,10 @@ class RelationQuery[R: Relation]:
 
         return output
 
+    def _execute(self, query: str, tx_type: TransactionType) -> list[dict[str, Any]]:
+        """Execute a query using an existing transaction if available."""
+        return self._executor.execute(query, tx_type)
+
     def group_by(self, *fields: Any) -> "RelationGroupByQuery[R]":
         """Group relations by field values.
 
@@ -834,5 +849,9 @@ class RelationQuery[R: Relation]:
         from .group_by import RelationGroupByQuery
 
         return RelationGroupByQuery(
-            self.db, self.model_class, self.filters, self._expressions, fields
+            self._connection,
+            self.model_class,
+            self.filters,
+            self._expressions,
+            fields,
         )
