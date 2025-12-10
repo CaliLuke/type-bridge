@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from lark import Lark, Token, Transformer, v_args
+from lark import Lark, Transformer
 
 from .models import (
     AttributeSpec,
