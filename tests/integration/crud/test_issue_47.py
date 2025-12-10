@@ -6,14 +6,18 @@ from type_bridge import Entity, Flag, Key, SchemaManager, String, TypeFlags
 class Name(String):
     pass
 
+
 class Email(String):
     pass
+
 
 class Phone(String):
     pass
 
+
 class Notes(String):
     pass
+
 
 class Person(Entity):
     flags = TypeFlags(name="person_issue_47")
@@ -21,6 +25,7 @@ class Person(Entity):
     email: Email | None = None
     phone: Phone | None = None
     notes: Notes | None = None
+
 
 @pytest.mark.integration
 def test_update_entity_with_multiple_none_optional_attributes(clean_db):
@@ -38,12 +43,7 @@ def test_update_entity_with_multiple_none_optional_attributes(clean_db):
 
     # 1. Insert Person with only one optional attribute set (email)
     # phone and notes are None (and thus not in DB)
-    person = Person(
-        name=Name("Test User"),
-        email=Email("old@example.com"),
-        phone=None,
-        notes=None
-    )
+    person = Person(name=Name("Test User"), email=Email("old@example.com"), phone=None, notes=None)
     manager.insert(person)
 
     # 2. Fetch the entity
@@ -67,5 +67,6 @@ def test_update_entity_with_multiple_none_optional_attributes(clean_db):
 
     # The update should have succeeded
     assert updated_person.email is not None
-    assert updated_person.email.value == "new@example.com", \
+    assert updated_person.email.value == "new@example.com", (
         f"Update failed silently! Expected 'new@example.com' but got '{updated_person.email.value}'"
+    )
