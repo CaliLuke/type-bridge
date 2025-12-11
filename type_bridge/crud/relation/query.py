@@ -50,26 +50,46 @@ class RelationQuery[R: Relation]:
         """Add expression-based filters to the query.
 
         Args:
-            *expressions: Expression objects (ComparisonExpr, StringExpr, etc.)
+            *expressions: Expression objects (ComparisonExpr, StringExpr, RolePlayerExpr, etc.)
 
         Returns:
             Self for chaining
 
         Example:
+            # Filter by relation's own attributes
             query = Employment.manager(db).filter(
                 Salary.gt(Salary(100000)),
                 Position.contains(Position("Engineer"))
             )
 
+            # Filter by role-player attributes (type-safe syntax)
+            query = Employment.manager(db).filter(
+                Employment.employee.age.gt(Age(30))
+            )
+
         Raises:
             ValueError: If expression references attribute type not owned by relation
+                       or role-player expression references unknown role
         """
-        # Validate expressions reference owned attribute types
+        from type_bridge.expressions import RolePlayerExpr
+
+        # Separate RolePlayerExpr from regular expressions
+        regular_expressions = []
+        role_player_expr_list = []
+
         if expressions:
+            for expr in expressions:
+                if isinstance(expr, RolePlayerExpr):
+                    role_player_expr_list.append(expr)
+                else:
+                    regular_expressions.append(expr)
+
+        # Validate regular expressions reference owned attribute types
+        if regular_expressions:
             owned_attrs = self.model_class.get_all_attributes()
             owned_attr_types = {attr_info.typ for attr_info in owned_attrs.values()}
 
-            for expr in expressions:
+            for expr in regular_expressions:
                 # Get attribute types from expression
                 expr_attr_types = expr.get_attribute_types()
 
@@ -81,7 +101,24 @@ class RelationQuery[R: Relation]:
                             f"Available attribute types: {', '.join(t.__name__ for t in owned_attr_types)}"
                         )
 
-        self._expressions.extend(expressions)
+        # Validate RolePlayerExpr reference valid roles
+        roles = self.model_class._roles
+        for expr in role_player_expr_list:
+            if expr.role_name not in roles:
+                raise ValueError(
+                    f"{self.model_class.__name__} does not have role '{expr.role_name}'. "
+                    f"Available roles: {list(roles.keys())}"
+                )
+
+        # Add regular expressions
+        self._expressions.extend(regular_expressions)
+
+        # Add RolePlayerExpr to role_player_expressions
+        for expr in role_player_expr_list:
+            if expr.role_name not in self._role_player_expressions:
+                self._role_player_expressions[expr.role_name] = []
+            self._role_player_expressions[expr.role_name].append(expr)
+
         return self
 
     def limit(self, limit: int) -> "RelationQuery[R]":

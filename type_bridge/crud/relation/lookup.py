@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 def parse_role_lookup_filters(
     model_class: type[Relation],
     filters: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, list[RolePlayerExpr]]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, list[RolePlayerExpr]], list[Expression]]:
     """Parse Django-style lookup filters including role-player attributes.
 
     Handles patterns like:
@@ -30,6 +30,7 @@ def parse_role_lookup_filters(
     - employee__name="Alice" -> role lookup exact match
     - employee=alice -> exact role player match (entity instance)
     - position="Engineer" -> relation attribute filter
+    - salary__gt=85000 -> relation attribute lookup expression
 
     Args:
         model_class: The Relation class being queried
@@ -40,6 +41,7 @@ def parse_role_lookup_filters(
         - attr_filters: dict of relation attribute filters (exact match)
         - role_player_filters: dict of role -> entity instance (exact match)
         - role_expressions: dict of role_name -> list of Expression objects
+        - attr_expressions: list of Expression objects for relation attribute lookups
 
     Raises:
         ValueError: If unknown role/attribute or invalid lookup operator
@@ -50,6 +52,7 @@ def parse_role_lookup_filters(
     attr_filters: dict[str, Any] = {}
     role_player_filters: dict[str, Any] = {}
     role_expressions: dict[str, list[RolePlayerExpr]] = {}
+    attr_expressions: list[Expression] = []
 
     for raw_key, raw_value in filters.items():
         # Case 1: No "__" - either exact attribute match or entity instance for role
@@ -91,8 +94,13 @@ def parse_role_lookup_filters(
             role_expressions[role_name].append(expr)
         elif first_part in owned_attrs:
             # Relation attribute lookup: attr__lookup
-            # Delegate to existing attribute lookup logic
-            attr_filters[raw_key] = raw_value
+            # Parse into expression like EntityManager._parse_lookup_filters does
+            lookup = parts[1] if len(parts) > 1 else "exact"
+            attr_info = owned_attrs[first_part]
+            attr_type = attr_info.typ
+
+            expr = _build_lookup_expression(attr_type, lookup, raw_value)
+            attr_expressions.append(expr)
         else:
             raise ValueError(
                 f"Unknown filter field '{first_part}' for {model_class.__name__}. "
@@ -100,7 +108,7 @@ def parse_role_lookup_filters(
                 f"Available attributes: {list(owned_attrs.keys())}"
             )
 
-    return attr_filters, role_player_filters, role_expressions
+    return attr_filters, role_player_filters, role_expressions, attr_expressions
 
 
 def _parse_role_attribute_lookup(

@@ -1073,17 +1073,33 @@ class RelationManager[R: Relation]:
         from .lookup import parse_role_lookup_filters
         from .query import RelationQuery
 
-        # Parse filters into attr_filters, role_player_filters, and role_expressions
-        attr_filters, role_player_filters, role_expressions = parse_role_lookup_filters(
-            self.model_class, filters
+        # Parse filters into attr_filters, role_player_filters, role_expressions, and attr_expressions
+        attr_filters, role_player_filters, role_expressions, attr_expressions = (
+            parse_role_lookup_filters(self.model_class, filters)
         )
 
-        # Validate expressions reference owned attribute types
+        # Separate RolePlayerExpr from regular expressions
+        from type_bridge.expressions import RolePlayerExpr
+
+        regular_expressions = []
+        role_player_expr_list = []
+
         if expressions:
+            for expr in expressions:
+                if isinstance(expr, RolePlayerExpr):
+                    role_player_expr_list.append(expr)
+                else:
+                    regular_expressions.append(expr)
+
+        # Add attr_expressions (from Django-style lookups on relation attributes) to regular_expressions
+        regular_expressions.extend(attr_expressions)
+
+        # Validate regular expressions reference owned attribute types
+        if regular_expressions:
             owned_attrs = self.model_class.get_all_attributes()
             owned_attr_types = {attr_info.typ for attr_info in owned_attrs.values()}
 
-            for expr in expressions:
+            for expr in regular_expressions:
                 # Get attribute types from expression
                 expr_attr_types = expr.get_attribute_types()
 
@@ -1095,15 +1111,34 @@ class RelationManager[R: Relation]:
                             f"Available attribute types: {', '.join(t.__name__ for t in owned_attr_types)}"
                         )
 
+        # Validate RolePlayerExpr reference valid roles
+        roles = self.model_class._roles
+        for expr in role_player_expr_list:
+            if expr.role_name not in roles:
+                raise ValueError(
+                    f"{self.model_class.__name__} does not have role '{expr.role_name}'. "
+                    f"Available roles: {list(roles.keys())}"
+                )
+
         # Combine attr_filters and role_player_filters for backward compatibility
         combined_filters = {**attr_filters, **role_player_filters}
         query = RelationQuery(
             self._connection, self.model_class, combined_filters if combined_filters else None
         )
-        if expressions:
-            query._expressions.extend(expressions)
+        if regular_expressions:
+            query._expressions.extend(regular_expressions)
+
+        # Add RolePlayerExpr to role_player_expressions
+        for expr in role_player_expr_list:
+            if expr.role_name not in query._role_player_expressions:
+                query._role_player_expressions[expr.role_name] = []
+            query._role_player_expressions[expr.role_name].append(expr)
+
         if role_expressions:
-            query._role_player_expressions = role_expressions
+            for role_name, exprs in role_expressions.items():
+                if role_name not in query._role_player_expressions:
+                    query._role_player_expressions[role_name] = []
+                query._role_player_expressions[role_name].extend(exprs)
         return query
 
     def _execute(self, query: str, tx_type: TransactionType) -> list[dict[str, Any]]:

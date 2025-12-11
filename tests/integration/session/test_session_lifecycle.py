@@ -6,19 +6,19 @@ from typedb.driver import TransactionType
 from type_bridge import Database, Entity, Flag, Integer, Key, SchemaManager, String, TypeFlags
 
 
-# Test attribute and entity types
-class TestName(String):
+# Attribute and entity types for session lifecycle tests
+class SessionName(String):
     pass
 
 
-class TestAge(Integer):
+class SessionAge(Integer):
     pass
 
 
 class SessionTestPerson(Entity):
     flags = TypeFlags(name="session_test_person")
-    name: TestName = Flag(Key)
-    age: TestAge | None = None
+    name: SessionName = Flag(Key)
+    age: SessionAge | None = None
 
 
 @pytest.mark.integration
@@ -162,7 +162,7 @@ class TestTransactionTypes:
         schema_manager.sync_schema(force=True)
 
         with clean_db.transaction(TransactionType.WRITE) as tx:
-            tx.execute('insert $p isa session_test_person, has TestName "Alice";')
+            tx.execute('insert $p isa session_test_person, has SessionName "Alice";')
             # Commit happens automatically on exit
 
         # Verify insert persisted
@@ -195,7 +195,7 @@ class TestTransactionOperations:
 
         # Insert test data
         with clean_db.transaction(TransactionType.WRITE) as tx:
-            tx.execute('insert $p isa session_test_person, has TestName "Bob";')
+            tx.execute('insert $p isa session_test_person, has SessionName "Bob";')
 
         # Execute read query
         with clean_db.transaction(TransactionType.READ) as tx:
@@ -221,7 +221,7 @@ class TestTransactionOperations:
         schema_manager.sync_schema(force=True)
 
         with clean_db.transaction(TransactionType.WRITE) as tx:
-            tx.execute('insert $p isa session_test_person, has TestName "Charlie";')
+            tx.execute('insert $p isa session_test_person, has SessionName "Charlie";')
             tx.commit()
 
         # Verify persisted
@@ -253,7 +253,7 @@ class TestExecuteQuery:
         schema_manager.sync_schema(force=True)
 
         clean_db.execute_query(
-            'insert $p isa session_test_person, has TestName "Dave";', transaction_type="write"
+            'insert $p isa session_test_person, has SessionName "Dave";', transaction_type="write"
         )
 
         # Verify committed
@@ -291,4 +291,4 @@ class TestGetSchema:
 
         schema = clean_db.get_schema()
         assert "session_test_person" in schema
-        assert "TestName" in schema
+        assert "SessionName" in schema

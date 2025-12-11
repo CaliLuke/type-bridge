@@ -78,27 +78,29 @@ class Interaction(Relation):
 def test_parse_exact_role_player_filter():
     """Test entity instance filter passes through to role_player_filters."""
     person = Person(name=Name("Alice"))
-    attr_filters, role_filters, role_exprs = parse_role_lookup_filters(
+    attr_filters, role_filters, role_exprs, attr_exprs = parse_role_lookup_filters(
         Employment, {"employee": person}
     )
     assert attr_filters == {}
     assert role_filters == {"employee": person}
     assert role_exprs == {}
+    assert attr_exprs == []
 
 
 def test_parse_exact_attribute_filter():
     """Test relation attribute filter passes through to attr_filters."""
-    attr_filters, role_filters, role_exprs = parse_role_lookup_filters(
+    attr_filters, role_filters, role_exprs, attr_exprs = parse_role_lookup_filters(
         Employment, {"position": "Engineer"}
     )
     assert attr_filters == {"position": "Engineer"}
     assert role_filters == {}
     assert role_exprs == {}
+    assert attr_exprs == []
 
 
 def test_parse_role_attribute_exact():
     """Test role__attr pattern creates exact match expression wrapped in RolePlayerExpr."""
-    attr_filters, role_filters, role_exprs = parse_role_lookup_filters(
+    attr_filters, role_filters, role_exprs, attr_exprs = parse_role_lookup_filters(
         Employment, {"employee__name": "Alice"}
     )
     assert attr_filters == {}
@@ -109,11 +111,12 @@ def test_parse_role_attribute_exact():
     assert isinstance(role_expr, RolePlayerExpr)
     assert role_expr.role_name == "employee"
     assert isinstance(role_expr.inner_expr, ComparisonExpr)
+    assert attr_exprs == []
 
 
 def test_parse_role_attribute_with_lookup():
     """Test role__attr__lookup pattern creates expression wrapped in RolePlayerExpr."""
-    attr_filters, role_filters, role_exprs = parse_role_lookup_filters(
+    attr_filters, role_filters, role_exprs, attr_exprs = parse_role_lookup_filters(
         Employment, {"employee__age__gt": 30}
     )
     assert attr_filters == {}
@@ -125,6 +128,7 @@ def test_parse_role_attribute_with_lookup():
     assert role_expr.role_name == "employee"
     assert isinstance(role_expr.inner_expr, ComparisonExpr)
     assert role_expr.inner_expr.operator == ">"
+    assert attr_exprs == []
 
 
 # ============================================================
@@ -134,7 +138,7 @@ def test_parse_role_attribute_with_lookup():
 
 def test_parse_role_lookup_gt():
     """Test __gt lookup wrapped in RolePlayerExpr."""
-    _, _, role_exprs = parse_role_lookup_filters(Employment, {"employee__age__gt": 30})
+    _, _, role_exprs, _ = parse_role_lookup_filters(Employment, {"employee__age__gt": 30})
     role_expr = role_exprs["employee"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     assert isinstance(role_expr.inner_expr, ComparisonExpr)
@@ -143,7 +147,7 @@ def test_parse_role_lookup_gt():
 
 def test_parse_role_lookup_gte():
     """Test __gte lookup wrapped in RolePlayerExpr."""
-    _, _, role_exprs = parse_role_lookup_filters(Employment, {"employee__age__gte": 30})
+    _, _, role_exprs, _ = parse_role_lookup_filters(Employment, {"employee__age__gte": 30})
     role_expr = role_exprs["employee"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     assert isinstance(role_expr.inner_expr, ComparisonExpr)
@@ -152,7 +156,7 @@ def test_parse_role_lookup_gte():
 
 def test_parse_role_lookup_lt():
     """Test __lt lookup wrapped in RolePlayerExpr."""
-    _, _, role_exprs = parse_role_lookup_filters(Employment, {"employee__age__lt": 50})
+    _, _, role_exprs, _ = parse_role_lookup_filters(Employment, {"employee__age__lt": 50})
     role_expr = role_exprs["employee"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     assert isinstance(role_expr.inner_expr, ComparisonExpr)
@@ -161,7 +165,7 @@ def test_parse_role_lookup_lt():
 
 def test_parse_role_lookup_lte():
     """Test __lte lookup wrapped in RolePlayerExpr."""
-    _, _, role_exprs = parse_role_lookup_filters(Employment, {"employee__age__lte": 50})
+    _, _, role_exprs, _ = parse_role_lookup_filters(Employment, {"employee__age__lte": 50})
     role_expr = role_exprs["employee"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     assert isinstance(role_expr.inner_expr, ComparisonExpr)
@@ -175,7 +179,9 @@ def test_parse_role_lookup_lte():
 
 def test_parse_role_lookup_contains():
     """Test __contains lookup on string attribute wrapped in RolePlayerExpr."""
-    _, _, role_exprs = parse_role_lookup_filters(Employment, {"employer__name__contains": "Tech"})
+    _, _, role_exprs, _ = parse_role_lookup_filters(
+        Employment, {"employer__name__contains": "Tech"}
+    )
     role_expr = role_exprs["employer"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     assert isinstance(role_expr.inner_expr, StringExpr)
@@ -184,7 +190,9 @@ def test_parse_role_lookup_contains():
 
 def test_parse_role_lookup_startswith():
     """Test __startswith lookup wrapped in RolePlayerExpr."""
-    _, _, role_exprs = parse_role_lookup_filters(Employment, {"employer__name__startswith": "Tech"})
+    _, _, role_exprs, _ = parse_role_lookup_filters(
+        Employment, {"employer__name__startswith": "Tech"}
+    )
     role_expr = role_exprs["employer"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     assert isinstance(role_expr.inner_expr, StringExpr)
@@ -193,7 +201,9 @@ def test_parse_role_lookup_startswith():
 
 def test_parse_role_lookup_endswith():
     """Test __endswith lookup wrapped in RolePlayerExpr."""
-    _, _, role_exprs = parse_role_lookup_filters(Employment, {"employer__name__endswith": "Corp"})
+    _, _, role_exprs, _ = parse_role_lookup_filters(
+        Employment, {"employer__name__endswith": "Corp"}
+    )
     role_expr = role_exprs["employer"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     assert isinstance(role_expr.inner_expr, StringExpr)
@@ -201,7 +211,9 @@ def test_parse_role_lookup_endswith():
 
 def test_parse_role_lookup_regex():
     """Test __regex lookup wrapped in RolePlayerExpr."""
-    _, _, role_exprs = parse_role_lookup_filters(Employment, {"employer__name__regex": "^Tech.*"})
+    _, _, role_exprs, _ = parse_role_lookup_filters(
+        Employment, {"employer__name__regex": "^Tech.*"}
+    )
     role_expr = role_exprs["employer"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     assert isinstance(role_expr.inner_expr, StringExpr)
@@ -221,7 +233,7 @@ def test_string_lookup_on_non_string_raises():
 
 def test_parse_role_lookup_in():
     """Test __in lookup creates OR expression wrapped in RolePlayerExpr."""
-    _, _, role_exprs = parse_role_lookup_filters(
+    _, _, role_exprs, _ = parse_role_lookup_filters(
         Employment, {"employee__name__in": ["Alice", "Bob"]}
     )
     role_expr = role_exprs["employee"][0]
@@ -244,7 +256,7 @@ def test_parse_role_lookup_in_requires_non_empty():
 
 def test_parse_role_lookup_isnull_true():
     """Test __isnull=True creates AttributeExistsExpr wrapped in RolePlayerExpr."""
-    _, _, role_exprs = parse_role_lookup_filters(Employment, {"employee__age__isnull": True})
+    _, _, role_exprs, _ = parse_role_lookup_filters(Employment, {"employee__age__isnull": True})
     role_expr = role_exprs["employee"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     assert isinstance(role_expr.inner_expr, AttributeExistsExpr)
@@ -253,7 +265,7 @@ def test_parse_role_lookup_isnull_true():
 
 def test_parse_role_lookup_isnull_false():
     """Test __isnull=False creates AttributeExistsExpr wrapped in RolePlayerExpr."""
-    _, _, role_exprs = parse_role_lookup_filters(Employment, {"employee__age__isnull": False})
+    _, _, role_exprs, _ = parse_role_lookup_filters(Employment, {"employee__age__isnull": False})
     role_expr = role_exprs["employee"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     assert isinstance(role_expr.inner_expr, AttributeExistsExpr)
@@ -274,7 +286,7 @@ def test_parse_role_lookup_isnull_requires_bool():
 def test_parse_mixed_filters():
     """Test parsing mix of role lookups, role instances, and attribute filters."""
     person = Person(name=Name("Alice"))
-    attr_filters, role_filters, role_exprs = parse_role_lookup_filters(
+    attr_filters, role_filters, role_exprs, attr_exprs = parse_role_lookup_filters(
         Employment,
         {
             "position": "Engineer",
@@ -286,11 +298,12 @@ def test_parse_mixed_filters():
     assert "employer" in role_filters
     assert "employee" in role_exprs
     assert len(role_exprs["employee"]) == 1
+    assert attr_exprs == []
 
 
 def test_parse_multiple_lookups_same_role():
     """Test multiple lookups on the same role create multiple expressions."""
-    _, _, role_exprs = parse_role_lookup_filters(
+    _, _, role_exprs, _ = parse_role_lookup_filters(
         Employment, {"employee__age__gt": 25, "employee__age__lt": 50}
     )
     assert "employee" in role_exprs
@@ -299,7 +312,7 @@ def test_parse_multiple_lookups_same_role():
 
 def test_parse_lookups_multiple_roles():
     """Test lookups on different roles."""
-    _, _, role_exprs = parse_role_lookup_filters(
+    _, _, role_exprs, _ = parse_role_lookup_filters(
         Employment,
         {"employee__age__gt": 25, "employer__name__contains": "Tech"},
     )
@@ -317,7 +330,7 @@ def test_parse_lookups_multiple_roles():
 def test_role_multi_attribute_on_any_player_type():
     """Test attribute valid if owned by ANY player type in Role.multi."""
     # 'name' exists on both Person and Bot
-    _, _, role_exprs = parse_role_lookup_filters(Interaction, {"actor__name": "Alice"})
+    _, _, role_exprs, _ = parse_role_lookup_filters(Interaction, {"actor__name": "Alice"})
     assert "actor" in role_exprs
     assert len(role_exprs["actor"]) == 1
 
@@ -325,7 +338,7 @@ def test_role_multi_attribute_on_any_player_type():
 def test_role_multi_attribute_on_one_player_only():
     """Test attribute valid even if only one player type has it."""
     # 'age' exists only on Person, not Bot - should still work
-    _, _, role_exprs = parse_role_lookup_filters(Interaction, {"actor__age__gt": 25})
+    _, _, role_exprs, _ = parse_role_lookup_filters(Interaction, {"actor__age__gt": 25})
     assert "actor" in role_exprs
     assert len(role_exprs["actor"]) == 1
 
@@ -383,3 +396,48 @@ def test_build_expression_preserves_wrapped_value():
     expr = _build_lookup_expression(Age, "gt", Age(30))
     assert isinstance(expr, ComparisonExpr)
     assert expr.value.value == 30
+
+
+# ============================================================
+# Relation attribute lookup tests
+# ============================================================
+
+
+def test_parse_relation_attribute_lookup_gt():
+    """Test relation attribute lookup creates expression in attr_exprs."""
+    attr_filters, role_filters, role_exprs, attr_exprs = parse_role_lookup_filters(
+        Employment, {"salary__gt": 85000}
+    )
+    assert attr_filters == {}
+    assert role_filters == {}
+    assert role_exprs == {}
+    assert len(attr_exprs) == 1
+    assert isinstance(attr_exprs[0], ComparisonExpr)
+    assert attr_exprs[0].operator == ">"
+
+
+def test_parse_relation_attribute_lookup_contains():
+    """Test relation string attribute lookup creates expression."""
+    attr_filters, role_filters, role_exprs, attr_exprs = parse_role_lookup_filters(
+        Employment, {"position__contains": "Engineer"}
+    )
+    assert attr_filters == {}
+    assert len(attr_exprs) == 1
+    assert isinstance(attr_exprs[0], StringExpr)
+    assert attr_exprs[0].operation == "contains"
+
+
+def test_parse_mixed_with_relation_attribute_lookup():
+    """Test parsing mix of role lookups and relation attribute lookups."""
+    attr_filters, role_filters, role_exprs, attr_exprs = parse_role_lookup_filters(
+        Employment,
+        {
+            "employee__age__gt": 25,
+            "salary__gt": 85000,
+        },
+    )
+    assert attr_filters == {}
+    assert "employee" in role_exprs
+    assert len(role_exprs["employee"]) == 1
+    assert len(attr_exprs) == 1
+    assert isinstance(attr_exprs[0], ComparisonExpr)
