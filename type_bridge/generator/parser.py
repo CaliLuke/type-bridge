@@ -93,11 +93,10 @@ class SchemaTransformer(Transformer):
         owns_list = []
         plays_set = set()
 
-        # items[1:] contains entity_opts (list of dicts) and entity_clauses (tuple or str)
+        # items[1:] contains entity_clauses (dict, tuple, or str)
         for item in items[1:]:
-            if isinstance(item, list):  # entity_opts
-                for opt in item:
-                    opts.update(opt)
+            if isinstance(item, dict):  # sub_clause or abstract_annotation
+                opts.update(item)
             elif isinstance(item, tuple):  # owns_statement result
                 owns_list.append(item)
             elif isinstance(item, str):  # plays_statement result
@@ -132,9 +131,6 @@ class SchemaTransformer(Transformer):
             cardinalities=cardinalities,
         )
         self.schema.entities[name] = entity
-
-    def entity_opts(self, items: list[Any]) -> list[dict[str, Any]]:
-        return items
 
     def entity_clause(self, items: list[Any]) -> Any:
         return items[0]
@@ -182,9 +178,13 @@ class SchemaTransformer(Transformer):
         return {"card": Cardinality(min_val, max_val)}
 
     def plays_statement(self, items: list[Any]) -> str:
-        if len(items) == 2 and items[1] is not None:
-            return f"{items[0]}:{items[1]}"
-        return str(items[0])
+        # items: [relation_name, optional role_name (Token), optional card_annotation (dict)]
+        # We ignore cardinality on plays for now
+        relation = str(items[0])
+        # Check if there's a role (second item is a Token, not a dict)
+        if len(items) > 1 and items[1] is not None and not isinstance(items[1], dict):
+            return f"{relation}:{items[1]}"
+        return relation
 
     # --- Relations ---
     def relation_def(self, items: list[Any]) -> None:
@@ -195,11 +195,10 @@ class SchemaTransformer(Transformer):
         owns_list = []
         plays_set = set()
 
-        # items[1:] contains relation_opts (list) and relation_clauses
+        # items[1:] contains relation_clauses (dict, RoleSpec, tuple, or str)
         for item in items[1:]:
-            if isinstance(item, list):  # relation_opts
-                for opt in item:
-                    opts.update(opt)
+            if isinstance(item, dict):  # sub_clause or abstract_annotation
+                opts.update(item)
             elif isinstance(item, RoleSpec):  # relates_statement
                 roles.append(item)
             elif isinstance(item, tuple):  # owns_statement
@@ -237,15 +236,16 @@ class SchemaTransformer(Transformer):
         )
         self.schema.relations[name] = rel
 
-    def relation_opts(self, items: list[Any]) -> list[dict[str, Any]]:
-        return items
-
     def relation_clause(self, items: list[Any]) -> Any:
         return items[0]
 
     def relates_statement(self, items: list[Any]) -> RoleSpec:
+        # items: [role_name, optional "as" override (Token), optional card_annotation (dict)]
+        # We ignore cardinality on relates for now
         name = str(items[0])
-        overrides = str(items[1]) if len(items) > 1 else None
+        overrides = None
+        if len(items) > 1 and items[1] is not None and not isinstance(items[1], dict):
+            overrides = str(items[1])
         return RoleSpec(name=name, overrides=overrides)
 
     # --- Functions ---

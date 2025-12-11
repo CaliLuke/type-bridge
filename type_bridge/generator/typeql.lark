@@ -24,11 +24,9 @@ values_annotation: "@values" "(" string_list ")"
 abstract_annotation: "@abstract"
 
 // --- Entities ---
-entity_def: "entity" IDENTIFIER [entity_opts] (","? entity_clause)* ";"
+entity_def: "entity" IDENTIFIER (","? entity_clause)* ";"
 
-entity_opts: (sub_clause | abstract_annotation)+
-
-entity_clause: owns_statement | plays_statement
+entity_clause: sub_clause | abstract_annotation | owns_statement | plays_statement
 
 owns_statement: "owns" IDENTIFIER [owns_opts]
 
@@ -37,16 +35,14 @@ key_annotation: "@key"
 unique_annotation: "@unique"
 card_annotation: "@card" "(" INT [DOT_DOT [INT]] ")"
 
-plays_statement: "plays" IDENTIFIER [":" IDENTIFIER]
+plays_statement: "plays" IDENTIFIER [":" IDENTIFIER] [card_annotation]
 
 // --- Relations ---
-relation_def: "relation" IDENTIFIER [relation_opts] (","? relation_clause)* ";"
+relation_def: "relation" IDENTIFIER (","? relation_clause)* ";"
 
-relation_opts: (sub_clause | abstract_annotation)+
+relation_clause: sub_clause | abstract_annotation | relates_statement | owns_statement | plays_statement
 
-relation_clause: relates_statement | owns_statement | plays_statement
-
-relates_statement: "relates" IDENTIFIER ["as" IDENTIFIER]
+relates_statement: "relates" IDENTIFIER ["as" IDENTIFIER] [card_annotation]
 
 // --- Functions ---
 function_def: "fun" IDENTIFIER "(" param_list? ")" "->" return_type_clause ":" func_body
