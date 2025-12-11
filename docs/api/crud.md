@@ -710,6 +710,27 @@ class RelationManager[R: Relation]:
 
     def update(self, relation: R) -> R:
         """Update relation in database."""
+
+# Relation class method (not manager)
+class Relation:
+    @classmethod
+    def get_roles(cls) -> dict[str, Role]:
+        """Get all roles defined on this relation. New in v0.9.0."""
+```
+
+### Accessing Relation Roles
+
+**New in v0.9.0**: Use `get_roles()` to introspect relation roles:
+
+```python
+# Get all roles for a relation
+roles = Employment.get_roles()
+# Returns: {'employee': Role(...), 'employer': Role(...)}
+
+# Access specific role
+employee_role = Employment.get_roles()['employee']
+print(employee_role.role_name)  # 'employee'
+print(employee_role.player_entity_types)  # (Person,)
 ```
 
 ### Insert Relations
@@ -813,12 +834,14 @@ print(f"Found {count} engineers")
 
 #### RelationQuery Methods
 
-**New in v0.6.0**: Complete API parity with EntityQuery:
+**New in v0.6.0**: Complete API parity with EntityQuery.
+
+**New in v0.9.0**: Type-safe role player expressions and `**kwargs` support in chained `filter()`.
 
 ```python
 class RelationQuery[R: Relation]:
-    def filter(self, **filters) -> RelationQuery[R]:
-        """Add additional filters (attributes and role players)."""
+    def filter(self, *expressions, **filters) -> RelationQuery[R]:
+        """Add filters. Supports type-safe expressions and Django-style kwargs."""
 
     def order_by(self, *fields: str) -> RelationQuery[R]:
         """Sort results by fields. Use 'role__attr' for role-player attributes."""
@@ -850,6 +873,38 @@ class RelationQuery[R: Relation]:
     def group_by(self, *fields) -> RelationGroupByQuery[R]:
         """Group relations by field values."""
 ```
+
+#### Type-Safe Role Player Expressions
+
+**New in v0.9.0**: Filter relations using type-safe role player field access:
+
+```python
+# Type-safe role player expressions
+results = manager.filter(
+    Employment.employee.age.gte(Age(30))
+).execute()
+
+# String operations on role player attributes
+results = manager.filter(
+    Employment.employer.name.contains(Name("Tech"))
+).execute()
+
+# Combine with Django-style filters
+results = manager.filter(
+    Employment.employee.age.gt(Age(25)),
+    employer__industry__eq="Technology"
+).execute()
+
+# Full query with sorting and pagination
+results = (
+    manager.filter(Employment.employee.age.gte(Age(25)), salary__gte=80000)
+    .order_by("employee__age", "-salary")
+    .limit(10)
+    .execute()
+)
+```
+
+See [Queries - Type-Safe Role Player Expressions](queries.md#type-safe-role-player-expressions) for full documentation.
 
 ### Update Relations
 

@@ -547,6 +547,164 @@ str_expr: StringExpr[Name] = Person.name.contains(Name("Alice"))
 agg_expr: AggregateExpr[Age] = Person.age.avg()
 ```
 
+## Type-Safe Role Player Expressions
+
+**New in v0.9.0**: Filter relations by role player attributes with full type safety.
+
+### Basic Role Player Field Access
+
+Access role player attributes through the relation class:
+
+```python
+from type_bridge import Relation, Role, Entity, TypeFlags, String, Integer, Flag, Key
+
+class Name(String):
+    pass
+
+class Age(Integer):
+    pass
+
+class Person(Entity):
+    flags = TypeFlags(name="person")
+    name: Name = Flag(Key)
+    age: Age | None = None
+
+class Company(Entity):
+    flags = TypeFlags(name="company")
+    name: Name = Flag(Key)
+
+class Employment(Relation):
+    flags = TypeFlags(name="employment")
+    employee: Role[Person] = Role("employee", Person)
+    employer: Role[Company] = Role("employer", Company)
+
+# Class-level access returns RoleRef for query building
+Employment.employee       # Returns RoleRef with player_types=(Person,)
+Employment.employee.age   # Returns RolePlayerNumericFieldRef
+Employment.employee.name  # Returns RolePlayerStringFieldRef
+
+# Instance-level access returns actual entity instances
+emp = Employment(employee=person, employer=company)
+emp.employee              # Returns Person instance
+```
+
+### Filtering by Role Player Attributes
+
+Use comparison methods on role player field references:
+
+```python
+manager = Employment.manager(db)
+
+# Greater than
+results = manager.filter(Employment.employee.age.gt(Age(30))).execute()
+
+# Less than or equal
+results = manager.filter(Employment.employee.age.lte(Age(50))).execute()
+
+# Equality
+results = manager.filter(Employment.employee.age.eq(Age(25))).execute()
+
+# Not equal
+results = manager.filter(Employment.employee.age.neq(Age(30))).execute()
+```
+
+### String Operations on Role Player Attributes
+
+String attributes support text search methods:
+
+```python
+# Contains substring
+results = manager.filter(
+    Employment.employer.name.contains(Name("Tech"))
+).execute()
+
+# Regex pattern (like)
+results = manager.filter(
+    Employment.employer.name.like(Name("^Tech.*"))
+).execute()
+
+# Regex pattern
+results = manager.filter(
+    Employment.employee.name.regex(Name("^A.*"))
+).execute()
+```
+
+### Available Role Player Field Methods
+
+**Numeric fields** (`RolePlayerNumericFieldRef`):
+- `.gt(value)` - Greater than
+- `.lt(value)` - Less than
+- `.gte(value)` - Greater than or equal
+- `.lte(value)` - Less than or equal
+- `.eq(value)` - Equal to
+- `.neq(value)` - Not equal to
+
+**String fields** (`RolePlayerStringFieldRef`):
+- `.contains(value)` - Substring match
+- `.like(value)` - Regex pattern
+- `.regex(value)` - Regex pattern (alias for like)
+
+### Combining with Django-Style Filters
+
+Mix type-safe expressions with Django-style keyword filters:
+
+```python
+# Type-safe expression + Django-style in same filter
+results = manager.filter(
+    Employment.employee.age.gt(Age(25)),
+    employer__industry__eq="Technology"
+).execute()
+
+# Chained filters
+results = (
+    manager.filter(Employment.employee.age.gte(Age(25)))
+    .filter(employer__industry__eq="Technology")
+    .execute()
+)
+```
+
+### Combined with Sorting and Pagination
+
+Full query combining type-safe expressions, Django-style filters, sorting, and pagination:
+
+```python
+results = (
+    Employment.manager(db)
+    .filter(Employment.employee.age.gte(Age(25)), salary__gte=80000)
+    .order_by("employee__age", "-salary")
+    .limit(10)
+    .offset(0)
+    .execute()
+)
+```
+
+### Multi-Player Roles (Role.multi)
+
+For roles with multiple player types, access attributes from any player type:
+
+```python
+class Document(Entity):
+    flags = TypeFlags(name="document")
+    name: Name = Flag(Key)
+
+class Email(Entity):
+    flags = TypeFlags(name="email")
+    subject: Subject = Flag(Key)
+    sender: Sender
+
+class Trace(Relation):
+    flags = TypeFlags(name="trace")
+    origin: Role[Document | Email] = Role.multi("origin", Document, Email)
+
+# Access attributes from any player type
+Trace.origin.name      # From Document
+Trace.origin.subject   # From Email
+Trace.origin.sender    # From Email
+
+# dir() returns union of all player attributes
+dir(Trace.origin)  # ['name', 'subject', 'sender', ...]
+```
+
 ## Complete Query Example
 
 ```python
