@@ -46,11 +46,17 @@ class RelationQuery[R: Relation]:
         # [(field_name, direction, role_name or None)]
         self._order_by_fields: list[tuple[str, str, str | None]] = []
 
-    def filter(self, *expressions: Any) -> "RelationQuery[R]":
-        """Add expression-based filters to the query.
+    def filter(self, *expressions: Any, **filters: Any) -> "RelationQuery[R]":
+        """Add filters to the query.
+
+        Supports expression-based and Django-style filtering for chained queries.
 
         Args:
             *expressions: Expression objects (ComparisonExpr, StringExpr, RolePlayerExpr, etc.)
+            **filters: Django-style filters for attributes and role-player lookups
+                - Attribute filters: position="Engineer", salary=100000
+                - Role player filters: employee=person_entity
+                - Role-player lookups: employee__age__gt=30, employer__name__contains="Tech"
 
         Returns:
             Self for chaining
@@ -67,11 +73,43 @@ class RelationQuery[R: Relation]:
                 Employment.employee.age.gt(Age(30))
             )
 
+            # Django-style lookups (can be chained)
+            query = query.filter(employer__industry__contains="Tech")
+
+            # Combined in one call
+            query = manager.filter(
+                Employment.employee.age.gte(Age(25)),
+                salary__gt=50000
+            )
+
         Raises:
             ValueError: If expression references attribute type not owned by relation
                        or role-player expression references unknown role
         """
         from type_bridge.expressions import RolePlayerExpr
+
+        from .lookup import parse_role_lookup_filters
+
+        # Parse Django-style filters if provided
+        if filters:
+            attr_filters, role_player_filters, role_expressions, attr_expressions = (
+                parse_role_lookup_filters(self.model_class, filters)
+            )
+
+            # Add attr_filters to self.filters
+            self.filters.update(attr_filters)
+
+            # Add role_player_filters to self.filters
+            self.filters.update(role_player_filters)
+
+            # Add role_expressions to _role_player_expressions
+            for role_name, exprs in role_expressions.items():
+                if role_name not in self._role_player_expressions:
+                    self._role_player_expressions[role_name] = []
+                self._role_player_expressions[role_name].extend(exprs)
+
+            # Add attr_expressions to _expressions
+            self._expressions.extend(attr_expressions)
 
         # Separate RolePlayerExpr from regular expressions
         regular_expressions = []

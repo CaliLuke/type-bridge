@@ -214,7 +214,9 @@ class TestRolePlayerStringFieldRefMethods:
 
     def test_contains_returns_role_player_expr(self):
         """contains() should return RolePlayerExpr."""
-        expr = Employment.employer.name.contains(Name("Tech"))
+        employer_name_ref = Employment.employer.name
+        assert isinstance(employer_name_ref, RolePlayerStringFieldRef)
+        expr = employer_name_ref.contains(Name("Tech"))
 
         assert isinstance(expr, RolePlayerExpr)
         assert expr.role_name == "employer"
@@ -222,14 +224,18 @@ class TestRolePlayerStringFieldRefMethods:
 
     def test_like_returns_role_player_expr(self):
         """like() should return RolePlayerExpr."""
-        expr = Employment.employer.name.like(Name("Tech%"))
+        employer_name_ref = Employment.employer.name
+        assert isinstance(employer_name_ref, RolePlayerStringFieldRef)
+        expr = employer_name_ref.like(Name("Tech%"))
 
         assert isinstance(expr, RolePlayerExpr)
         assert expr.role_name == "employer"
 
     def test_regex_returns_role_player_expr(self):
         """regex() should return RolePlayerExpr."""
-        expr = Employment.employer.name.regex(Name("^Tech.*"))
+        employer_name_ref = Employment.employer.name
+        assert isinstance(employer_name_ref, RolePlayerStringFieldRef)
+        expr = employer_name_ref.regex(Name("^Tech.*"))
 
         assert isinstance(expr, RolePlayerExpr)
         assert expr.role_name == "employer"
@@ -249,7 +255,9 @@ class TestRolePlayerExpressionToTypeQL:
 
     def test_string_contains_generates_correct_typeql(self):
         """String contains expression should generate correct TypeQL."""
-        expr = Employment.employer.name.contains(Name("Tech"))
+        employer_name_ref = Employment.employer.name
+        assert isinstance(employer_name_ref, RolePlayerStringFieldRef)
+        expr = employer_name_ref.contains(Name("Tech"))
         typeql = expr.to_typeql("$employer")
 
         assert "$employer has Name $employer_name" in typeql

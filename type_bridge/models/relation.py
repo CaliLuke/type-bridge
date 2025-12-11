@@ -300,6 +300,15 @@ class Relation(TypeDBType, metaclass=RelationMeta):
         return None
 
     @classmethod
+    def get_roles(cls) -> dict[str, Role]:
+        """Get all roles defined on this relation.
+
+        Returns:
+            Dictionary mapping role names to Role instances
+        """
+        return cls._roles
+
+    @classmethod
     def manager(cls: type[R], connection: Connection) -> RelationManager[R]:
         """Create a RelationManager for this relation type.
 

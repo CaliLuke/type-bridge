@@ -214,11 +214,15 @@ class TestRoleFieldExpressionStringMethods:
     @pytest.mark.order(310)
     def test_contains_filter(self, setup_employment_data):
         """Filter by role-player string attribute contains."""
+        from type_bridge.fields.role import RolePlayerStringFieldRef
+
         db = setup_employment_data["db"]
         manager = Employment.manager(db)
 
         # Find employments where employer name contains "Tech"
-        results = manager.filter(Employment.employer.name.contains(Name("Tech"))).execute()
+        employer_name_ref = Employment.employer.name
+        assert isinstance(employer_name_ref, RolePlayerStringFieldRef)
+        results = manager.filter(employer_name_ref.contains(Name("Tech"))).execute()
 
         assert len(results) == 2
         # Both Alice and Bob work at TechCorp
@@ -229,11 +233,15 @@ class TestRoleFieldExpressionStringMethods:
     @pytest.mark.order(311)
     def test_like_filter(self, setup_employment_data):
         """Filter by role-player string attribute like pattern."""
+        from type_bridge.fields.role import RolePlayerStringFieldRef
+
         db = setup_employment_data["db"]
         manager = Employment.manager(db)
 
         # Find employments where employee city contains "Y" (NYC)
-        results = manager.filter(Employment.employee.city.contains(City("Y"))).execute()
+        employee_city_ref = Employment.employee.city
+        assert isinstance(employee_city_ref, RolePlayerStringFieldRef)
+        results = manager.filter(employee_city_ref.contains(City("Y"))).execute()
 
         assert len(results) == 2
         names = {r.employee.name.value for r in results}
@@ -277,19 +285,78 @@ class TestCombinedExpressions:
     @pytest.mark.order(322)
     def test_multiple_role_field_expressions(self, setup_employment_data):
         """Combine multiple type-safe role field expressions."""
+        from type_bridge.fields.role import RolePlayerStringFieldRef
+
         db = setup_employment_data["db"]
         manager = Employment.manager(db)
 
         # Filter on both employee and employer attributes
+        employer_name_ref = Employment.employer.name
+        assert isinstance(employer_name_ref, RolePlayerStringFieldRef)
         results = (
             manager.filter(Employment.employee.age.gte(Age(25)))
-            .filter(Employment.employer.name.contains(Name("Tech")))
+            .filter(employer_name_ref.contains(Name("Tech")))
             .execute()
         )
 
         assert len(results) == 2
         names = {r.employee.name.value for r in results}
         assert names == {"Alice", "Bob"}
+
+
+class TestCombinedWithPagination:
+    """Tests for combining type-safe expressions with sorting and pagination."""
+
+    @pytest.mark.integration
+    @pytest.mark.order(323)
+    def test_combined_with_order_by_and_limit(self, setup_employment_data):
+        """Combine type-safe expression + Django-style + order_by + limit + offset."""
+        db = setup_employment_data["db"]
+        manager = Employment.manager(db)
+
+        # Full combined query:
+        # - Type-safe expression: Employment.employee.age.gte(Age(25))
+        # - Django-style: salary__gte=80000
+        # - Order by role-player attribute and relation attribute
+        # - Pagination with limit and offset
+        results = (
+            manager.filter(Employment.employee.age.gte(Age(25)), salary__gte=80000)
+            .order_by("employee__age", "-salary")
+            .limit(10)
+            .offset(0)
+            .execute()
+        )
+
+        # All 3 employees match (age >= 25, salary >= 80000)
+        assert len(results) == 3
+
+        # Verify order: sorted by employee age asc, then salary desc
+        # Bob (25, 80000), Alice (30, 100000), Charlie (40, 90000)
+        assert results[0].employee.name.value == "Bob"
+        assert results[1].employee.name.value == "Alice"
+        assert results[2].employee.name.value == "Charlie"
+
+    @pytest.mark.integration
+    @pytest.mark.order(324)
+    def test_chained_filter_with_pagination(self, setup_employment_data):
+        """Chain multiple filter() calls with Django-style + pagination."""
+        db = setup_employment_data["db"]
+        manager = Employment.manager(db)
+
+        # Chained filters with Django-style in second filter call
+        results = (
+            manager.filter(Employment.employee.age.gte(Age(25)))
+            .filter(employer__industry__eq="Technology")
+            .order_by("-salary")
+            .limit(1)
+            .execute()
+        )
+
+        # Alice and Bob work at TechCorp, Alice has higher salary
+        assert len(results) == 1
+        assert results[0].employee.name.value == "Alice"
+        assert results[0].salary is not None
+        assert results[0].salary.value == 100000
 
 
 class TestBackwardCompatibilityWithDjangoStyle:
