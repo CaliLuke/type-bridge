@@ -33,6 +33,11 @@ uv run python examples/basic/crud_01_define.py
 ```
 type_bridge/
 ├── __init__.py           # Main package exports
+├── query.py              # TypeQL query builder
+├── session.py            # Database connection and transaction management
+├── reserved_words.py     # Reserved words validation
+├── typedb_driver.py      # TypeDB driver wrapper
+├── validation.py         # Validation utilities
 ├── attribute/            # Modular attribute system
 │   ├── base.py           # Abstract Attribute base class
 │   ├── string.py         # String attribute
@@ -40,6 +45,10 @@ type_bridge/
 │   ├── double.py         # Double attribute
 │   ├── boolean.py        # Boolean attribute
 │   ├── datetime.py       # DateTime attribute
+│   ├── datetimetz.py     # DateTimeTZ attribute
+│   ├── date.py           # Date attribute
+│   ├── decimal.py        # Decimal attribute
+│   ├── duration.py       # Duration attribute
 │   └── flags.py          # Flag system (Key, Unique, Card, TypeFlags)
 ├── models/               # Base Entity and Relation classes (modularized)
 │   ├── __init__.py       # Module exports
@@ -48,12 +57,24 @@ type_bridge/
 │   ├── relation.py       # Relation class
 │   ├── role.py           # Role definitions
 │   └── utils.py          # Model utilities
-├── query.py              # TypeQL query builder
-├── session.py            # Database connection and transaction management
+├── expressions/          # Query expression system
+│   ├── __init__.py
+│   ├── aggregate.py      # Aggregation expressions
+│   ├── base.py           # Base expression classes
+│   ├── boolean.py        # Boolean expressions
+│   ├── comparison.py     # Comparison expressions
+│   ├── functions.py      # Function expressions
+│   ├── role_player.py    # Role player expressions
+│   └── string.py         # String expressions
+├── fields/               # Field system
+│   ├── __init__.py
+│   ├── base.py           # Base field classes
+│   └── role.py           # Role field definitions
 ├── crud/                 # CRUD operations (modularized)
 │   ├── __init__.py       # Module exports (backward compatible)
 │   ├── base.py           # Type variables (E, R)
 │   ├── utils.py          # Shared utilities (format_value, is_multi_value_attribute)
+│   ├── exceptions.py     # CRUD exceptions
 │   ├── entity/           # Entity CRUD operations
 │   │   ├── __init__.py   # Entity module exports
 │   │   ├── manager.py    # EntityManager class
@@ -63,8 +84,10 @@ type_bridge/
 │       ├── __init__.py   # Relation module exports
 │       ├── manager.py    # RelationManager class
 │       ├── query.py      # RelationQuery chainable queries
-│       └── group_by.py   # RelationGroupByQuery for aggregations
+│       ├── group_by.py   # RelationGroupByQuery for aggregations
+│       └── lookup.py     # Relation lookup functionality
 ├── schema/               # Modular schema management
+│   ├── __init__.py       # Module exports
 │   ├── manager.py        # SchemaManager for schema operations
 │   ├── info.py           # SchemaInfo container
 │   ├── diff.py           # SchemaDiff for comparison
@@ -76,14 +99,19 @@ type_bridge/
     ├── models.py         # ParsedSchema, AttributeSpec, EntitySpec, RelationSpec
     ├── parser.py         # TypeQL parser with inheritance resolution
     ├── naming.py         # kebab-case → PascalCase/snake_case utilities
+    ├── annotations.py    # Type annotations handling
     └── render/           # Code renderers
+        ├── __init__.py   # Render module exports
         ├── attributes.py # Attribute class generation
         ├── entities.py   # Entity class generation
         ├── relations.py  # Relation class generation
-        └── package.py    # Package __init__.py generation
+        ├── package.py    # Package __init__.py generation
+        ├── functions.py  # Function rendering
+        └── registry.py   # Registry rendering
 
 examples/
 ├── basic/                # Basic CRUD examples (start here!)
+│   ├── crud.py               # Combined CRUD example
 │   ├── crud_01_define.py     # Schema definition
 │   ├── crud_02_insert.py     # Data insertion
 │   ├── crud_03_read.py       # Fetching API
@@ -102,7 +130,12 @@ examples/
 │   ├── features_04_base_flag.py   # Python-only base classes
 │   ├── features_05_implicit_flags.py # Implicit TypeFlags
 │   ├── query_01_expressions.py    # Query expressions
-│   └── validation_01_reserved_words.py # Keyword validation
+│   ├── crud_07_chainable_operations.py # Chainable CRUD operations
+│   ├── config_01_typename_case.py     # TypeName case configuration
+│   ├── config_02_attribute_case.py    # Attribute case configuration
+│   ├── config_03_typeflags.py         # TypeFlags configuration
+│   ├── validation_01_reserved_words.py # Keyword validation
+│   └── validation_02_edge_cases.py    # Validation edge cases
 └── patterns/             # Design patterns
     ├── cardinality_01_multi_value.py  # Cardinality patterns
     └── inheritance_01_abstract.py     # Abstract types
@@ -112,15 +145,21 @@ tests/
 │   ├── core/             # Core functionality tests
 │   ├── attributes/       # Attribute type tests
 │   ├── flags/            # Flag system tests
+│   ├── fields/           # Field system tests
 │   ├── expressions/      # Query expression API
 │   ├── crud/             # CRUD unit tests (lookup parser, etc.)
+│   ├── query/            # Query builder tests
+│   ├── session/          # Session tests
+│   ├── exceptions/       # Exception tests
 │   ├── generator/        # Code generator unit tests
-│   └── validation/       # Reserved word and keyword validation
+│   ├── validation/       # Reserved word and keyword validation
+│   └── type-check-except/ # Type check exception tests
 └── integration/          # Integration tests (require running TypeDB)
     ├── crud/             # CRUD operations
     ├── queries/          # Query builder tests
     ├── schema/           # Schema operations
     ├── session/          # TransactionContext tests
+    ├── validation/       # Validation integration tests
     └── generator/        # Generator integration tests (generate + import)
 ```
 
@@ -128,8 +167,10 @@ tests/
 
 The project requires:
 
-- `typedb-driver==3.7.0`: Official Python driver for TypeDB connectivity
+- `typedb-driver>=3.7.0`: Official Python driver for TypeDB connectivity
 - `pydantic>=2.0`: For validation and type coercion
+- `isodate>=0.7.2`: ISO 8601 date/time parsing
+- `lark>=1.1.9`: Parser toolkit (for TypeQL parsing)
 - Uses Python's built-in type hints and dataclass-like patterns
 
 ## Documentation
