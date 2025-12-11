@@ -238,15 +238,20 @@ myapp/models/
 ├── attributes.py    # Attribute class definitions
 ├── entities.py      # Entity class definitions
 ├── relations.py     # Relation class definitions
+├── registry.py      # Schema metadata, JSON Schema fragments, lookup functions
 └── schema.tql       # Copy of original schema
 ```
 
 The generator supports:
 - Entity/relation/attribute inheritance (`sub` keyword)
-- `@key`, `@unique`, `@card` constraints
+- `@key`, `@unique`, `@card` constraints (including on `plays` and `relates`)
 - `@regex` and `@values` constraints
-- `@abstract` types
+- `@abstract` and `@independent` types
+- `@range(min..max)` constraints (integers, floats, dates, datetimes)
 - Role overrides (`relates X as Y`)
+- TypeDB function definitions with precise return type hints
+- Registry module generation for schema metadata and JSON Schema fragments
+- Both `#` and `//` comment styles
 
 See [docs/api/generator.md](docs/api/generator.md) for full documentation.
 
@@ -329,7 +334,7 @@ TypeBridge uses a two-tier testing approach with **100% test pass rate**:
 
 ```bash
 # Unit tests (fast, no external dependencies) - DEFAULT
-uv run pytest                              # Run 425 unit tests (0.3s)
+uv run pytest                              # Run unit tests (0.3s)
 uv run pytest tests/unit/attributes/ -v   # Test all 9 attribute types
 uv run pytest tests/unit/core/ -v         # Test core functionality
 uv run pytest tests/unit/flags/ -v        # Test flag system
@@ -340,7 +345,7 @@ uv run pytest tests/unit/expressions/ -v  # Test query expressions
 ./test-integration.sh                     # Starts Docker, runs tests, stops Docker
 
 # Option 2: Use existing TypeDB server
-USE_DOCKER=false uv run pytest -m integration -v  # Run 278 integration tests (~60s)
+USE_DOCKER=false uv run pytest -m integration -v  # Run integration tests (~60s)
 
 # Run specific integration test categories
 uv run pytest tests/integration/crud/entities/ -v      # Entity CRUD tests

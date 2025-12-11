@@ -2,6 +2,54 @@
 
 All notable changes to TypeBridge will be documented in this file.
 
+## [0.9.1] - 2025-12-11
+
+### New Features
+
+#### Enhanced Code Generator (PR #53)
+
+- **Registry Module** - Generates `registry.py` with schema metadata as Python dictionaries
+  - Entity/relation attributes, roles, and inheritance info
+  - JSON Schema fragments for validation
+  - Convenience lookup functions
+  - Schema hash for change detection
+  - Location: `type_bridge/generator/render/registry.py`
+
+- **Enhanced Function Generation** - Generic `FunctionCallExpr[T]` with precise return type hints
+  - Support for all TypeDB function variations: stream, scalar, tuple, optional returns
+  - Added `bool` to type mapping
+  - Improved docstrings with return type documentation
+  - Location: `type_bridge/generator/render/functions.py`
+
+- **TypeQL Parser Enhancements**
+  - `@independent` attribute flag support
+  - `@range(min..max)` constraint parsing (integers, floats, dates, datetimes, open-ended)
+  - `@card` on `plays` declarations with inheritance
+  - `@card` on `relates` declarations
+  - `//` C-style comments alongside `#` comments
+  - Comment annotations parsing (`@prefix`, `@tags`, etc.)
+  - Location: `type_bridge/generator/parser.py`, `type_bridge/generator/typeql.lark`
+
+### Testing
+
+- Added comprehensive generator unit tests for annotations, functions, and registry
+- **1,268 total tests** passing
+
+### Key Files Added/Modified
+
+- `type_bridge/generator/render/registry.py` - Registry module generation (new)
+- `type_bridge/generator/annotations.py` - Annotation parsing (new)
+- `type_bridge/generator/render/functions.py` - Enhanced function generation
+- `type_bridge/generator/parser.py` - Parser enhancements
+- `type_bridge/generator/typeql.lark` - Grammar updates
+- `type_bridge/generator/models.py` - New annotation models
+- `type_bridge/expressions/functions.py` - Generic FunctionCallExpr
+- `docs/api/generator.md` - Updated documentation
+
+### Contributors
+
+- @CaliLuke - Generator enhancements
+
 ## [0.9.0] - 2025-12-11
 
 ### New Features
