@@ -2,6 +2,177 @@
 
 All notable changes to TypeBridge will be documented in this file.
 
+## [0.8.1] - 2025-12-11
+
+### New Features
+
+#### TypeDB Function Support in Code Generator
+- **Parse TypeQL `fun` declarations with parameters and return types**
+  - Generate Python function wrappers that return `FunctionCallExpr` objects
+  - Auto-generate `functions.py` module when functions are defined in schema
+  - Support for all TypeDB data types (string, integer, date, datetime, double, boolean, decimal, duration)
+  - Location: `type_bridge/generator/render/functions.py`
+
+- **Added `FunctionCallExpr` class for building function calls in queries**
+  - New expression type for calling TypeDB functions
+  - Location: `type_bridge/expressions/functions.py`
+
+#### Lark-based Parser
+- **Migrated from regex-based parser to robust Lark grammar**
+  - Added formal grammar file (`typeql.lark`) for better maintainability
+  - Improved handling of edge cases (whitespace, optional clauses)
+  - Better support for TypeDB 3.0 features
+  - Location: `type_bridge/generator/typeql.lark`, `type_bridge/generator/parser.py`
+
+### Bug Fixes
+
+#### Parser Grammar Fixes
+- **Fixed parsing of `sub` and `@abstract` in entity/relation bodies**
+  - Now correctly handles patterns like `entity page @abstract, sub content,`
+  - Supports `sub` appearing anywhere in the type definition, not just at the start
+- **Fixed parsing of `@card` annotations on `plays` and `relates` statements**
+  - Now correctly parses `plays posting:post @card(1)` and `relates subject @card(1)`
+
+### Testing
+
+- Added 136 new unit tests for function parsing and rendering
+- All 808 tests passing (520 unit + 288 integration)
+
+### Key Files Added/Modified
+
+- `type_bridge/generator/typeql.lark` - Formal TypeQL grammar (75 lines)
+- `type_bridge/generator/parser.py` - Rewritten with Lark integration
+- `type_bridge/generator/models.py` - Added `FunctionSpec`, `ParameterSpec`
+- `type_bridge/generator/render/functions.py` - Function code generation
+- `type_bridge/expressions/functions.py` - `FunctionCallExpr` class
+- `type_bridge/expressions/__init__.py` - Export `FunctionCallExpr`
+- `type_bridge/generator/__init__.py` - Expose function parsing API
+- `tests/unit/generator/test_functions.py` - Function unit tests
+
+## [0.8.0] - 2025-12-11
+
+### New Features
+
+#### Code Generator (TypeQL → Python)
+- **Added `type_bridge.generator` module for generating Python models from TypeQL schema files**
+  - Eliminates manual synchronization between `.tql` schemas and Python code
+  - Write schema once in TypeQL, generate type-safe Python models automatically
+  - Location: `type_bridge/generator/`
+
+- **CLI interface for code generation**
+  - Usage: `python -m type_bridge.generator schema.tql -o ./models/`
+  - Options: `--version`, `--no-copy-schema`, `--implicit-keys`
+  - Location: `type_bridge/generator/__main__.py`
+
+- **Programmatic API**
+  - `generate_models(schema, output_dir)` - Main generation function
+  - `parse_tql_schema(schema_content)` - Parse TypeQL to intermediate representation
+  - Location: `type_bridge/generator/__init__.py`
+
+- **Full TypeDB 3.x schema support**
+  - All value types: string, integer, double, decimal, boolean, date, datetime, datetime-tz, duration
+  - Entity and relation inheritance (`sub` declarations)
+  - Abstract types (`@abstract`)
+  - Attribute constraints: `@key`, `@unique`, `@card`, `@regex`, `@values`
+  - Role definitions and `plays` declarations
+  - Comment annotations for customization (`# @prefix:`, `# @internal`)
+
+- **Generated package structure**
+  ```
+  output_dir/
+  ├── __init__.py      # Package exports, SCHEMA_VERSION, schema_text()
+  ├── attributes.py    # Attribute class definitions
+  ├── entities.py      # Entity class definitions
+  ├── relations.py     # Relation class definitions
+  └── schema.tql       # Copy of original schema
+  ```
+
+### Bug Fixes
+
+#### Optional Attribute Update Fix
+- **Fixed silent update failures for optional attributes** (Resolves [#47](https://github.com/ds1sqe/type-bridge/issues/47))
+  - Previously: Updating an entity with an optional attribute set to `None` could silently fail
+  - Now: Properly handles `None` values in update operations
+  - Location: `type_bridge/crud/entity/manager.py`
+
+### Testing
+
+- **Added comprehensive generator test suite**
+  - 62 unit tests covering parser, naming utilities, and renderers
+  - 18 integration tests verifying generated code imports and executes correctly
+  - Test fixtures with complex TypeQL schemas
+  - Location: `tests/unit/generator/`, `tests/integration/generator/`
+
+- **Expanded lookup filter tests**
+  - Additional test coverage for lookup filter parsing and execution
+  - Location: `tests/unit/crud/test_lookup_parser.py`, `tests/integration/queries/test_lookup_filters.py`
+
+### Documentation
+
+- **Added generator documentation**
+  - Complete API reference and usage guide
+  - CLI reference and examples
+  - Supported TypeQL features and cardinality mapping
+  - Best practices for generated code management
+  - Location: `docs/api/generator.md`
+
+- **Updated project documentation**
+  - Added generator to project structure in CLAUDE.md
+  - Updated README.md with code generator feature
+
+### Key Files Added/Modified
+
+- `type_bridge/generator/__init__.py` - Public API: `generate_models()`, `parse_tql_schema()`
+- `type_bridge/generator/__main__.py` - CLI interface
+- `type_bridge/generator/models.py` - `ParsedSchema`, `AttributeSpec`, `EntitySpec`, `RelationSpec`
+- `type_bridge/generator/parser.py` - TypeQL parser with inheritance resolution
+- `type_bridge/generator/naming.py` - kebab-case → PascalCase/snake_case utilities
+- `type_bridge/generator/render/` - Code generation renderers (attributes, entities, relations, package)
+- `type_bridge/crud/entity/manager.py` - Optional attribute update fix
+- `docs/api/generator.md` - Generator documentation
+
+### Usage Examples
+
+#### CLI Usage
+```bash
+# Generate models from a schema file
+python -m type_bridge.generator schema.tql -o ./myapp/models/
+
+# With options
+python -m type_bridge.generator schema.tql \
+    --output ./myapp/models/ \
+    --version 2.0.0 \
+    --implicit-keys id
+```
+
+#### Programmatic Usage
+```python
+from type_bridge.generator import generate_models
+
+# From a file path
+generate_models("schema.tql", "./myapp/models/")
+
+# From schema text
+schema = """
+define
+entity person, owns name @key;
+attribute name, value string;
+"""
+generate_models(schema, "./myapp/models/")
+```
+
+#### Using Generated Models
+```python
+from myapp.models import attributes, entities, relations
+from myapp.models import SCHEMA_VERSION, schema_text
+
+# Access generated classes
+person = entities.Person(name=attributes.Name("Alice"))
+
+# Get schema version
+print(SCHEMA_VERSION)  # "1.0.0"
+```
+
 ## [0.7.2] - 2025-12-10
 
 ### Breaking Changes

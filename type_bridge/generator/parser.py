@@ -120,11 +120,10 @@ class SchemaTransformer(Transformer):
         owns_list = []
         plays_list: list[tuple[str, Cardinality | None]] = []
 
-        # items[1:] contains entity_opts (list of dicts) and entity_clauses
+        # items[1:] contains entity_clauses (dict, tuple)
         for item in items[1:]:
-            if isinstance(item, list):  # entity_opts
-                for opt in item:
-                    opts.update(opt)
+            if isinstance(item, dict):  # sub_clause or abstract_annotation
+                opts.update(item)
             elif isinstance(item, tuple):
                 # Check if it's owns_statement (4 elements) or plays_statement (2 elements)
                 if len(item) == 4:
@@ -172,9 +171,6 @@ class SchemaTransformer(Transformer):
             annotations=self.entity_annotations.get(name, {}),
         )
         self.schema.entities[name] = entity
-
-    def entity_opts(self, items: list[Any]) -> list[dict[str, Any]]:
-        return items
 
     def entity_clause(self, items: list[Any]) -> Any:
         return items[0]
@@ -250,11 +246,10 @@ class SchemaTransformer(Transformer):
         owns_list = []
         plays_set = set()
 
-        # items[1:] contains relation_opts (list) and relation_clauses
+        # items[1:] contains relation_clauses (dict, RoleSpec, tuple, or str)
         for item in items[1:]:
-            if isinstance(item, list):  # relation_opts
-                for opt in item:
-                    opts.update(opt)
+            if isinstance(item, dict):  # sub_clause or abstract_annotation
+                opts.update(item)
             elif isinstance(item, RoleSpec):  # relates_statement
                 roles.append(item)
             elif isinstance(item, tuple):
@@ -302,13 +297,11 @@ class SchemaTransformer(Transformer):
         )
         self.schema.relations[name] = rel
 
-    def relation_opts(self, items: list[Any]) -> list[dict[str, Any]]:
-        return items
-
     def relation_clause(self, items: list[Any]) -> Any:
         return items[0]
 
     def relates_statement(self, items: list[Any]) -> RoleSpec:
+        # items: [role_name, optional "as" override (Token), optional card_annotation (dict)]
         name = str(items[0])
         overrides: str | None = None
         cardinality: Cardinality | None = None
