@@ -2,6 +2,49 @@
 
 All notable changes to TypeBridge will be documented in this file.
 
+## [0.9.4] - 2025-12-12
+
+### New Features
+
+#### Debug Logging Support (Issue #43)
+- **Added comprehensive logging throughout TypeBridge using Python's standard `logging` module**
+  - See generated TQL queries during CRUD operations
+  - Hierarchical logger structure for fine-grained control
+  - Documentation: `docs/api/logging.md`
+
+### Bug Fixes
+
+#### Type Safety Improvements
+- Fixed pyright errors for `TransactionType.name` access in session.py
+  - Added `_tx_type_name()` helper function for type-safe transaction type logging
+
+### Documentation
+
+- Added `docs/api/logging.md` - Comprehensive logging configuration guide
+- Updated `docs/DEVELOPMENT.md` with logging section
+
+### Key Files Modified
+
+- `type_bridge/session.py` - Fixed type errors, added logging
+- `type_bridge/query.py` - Added logging
+- `type_bridge/validation.py` - Added logging
+- `type_bridge/schema/manager.py` - Added logging
+- `type_bridge/schema/migration.py` - Added logging
+- `type_bridge/crud/entity/manager.py` - Added logging
+- `type_bridge/crud/entity/query.py` - Added logging
+- `type_bridge/crud/entity/group_by.py` - Added logging
+- `type_bridge/crud/relation/manager.py` - Added logging
+- `type_bridge/crud/relation/query.py` - Added logging
+- `type_bridge/crud/relation/group_by.py` - Added logging
+- `type_bridge/generator/__main__.py` - Added logging
+- `type_bridge/generator/render/attributes.py` - Added logging
+- `type_bridge/generator/render/entities.py` - Added logging
+- `type_bridge/generator/render/relations.py` - Added logging
+- `type_bridge/models/entity.py` - Added logging
+- `type_bridge/models/relation.py` - Added logging
+- `docs/api/logging.md` - New documentation
+- `docs/DEVELOPMENT.md` - Added logging section
+
 ## [0.9.3] - 2025-12-12
 
 ### Documentation
