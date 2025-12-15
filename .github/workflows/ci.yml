@@ -9,8 +9,11 @@ on:
 jobs:
   # Code quality: linting and formatting (parallel)
   lint:
-    name: ${{ matrix.check }} Check
+    name: Python ${{ matrix.check }}
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/python
     strategy:
       matrix:
         check: [ruff-lint, ruff-format]
@@ -41,8 +44,11 @@ jobs:
 
   # Type checking with pyright (parallel matrix for faster execution)
   typecheck:
-    name: Type Check (${{ matrix.target }})
+    name: Python Type Check (${{ matrix.target }})
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/python
     strategy:
       matrix:
         target: [type_bridge, examples, tests]
@@ -71,8 +77,11 @@ jobs:
 
   # Unit tests (fast, no external dependencies, parallel execution)
   test-unit:
-    name: Unit Tests (Python ${{ matrix.python-version }})
+    name: Python Unit Tests (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/python
     strategy:
       matrix:
         python-version: ["3.13"]
@@ -101,8 +110,11 @@ jobs:
 
   # Integration tests (require TypeDB server, parallel by test category)
   test-integration:
-    name: Integration Tests (${{ matrix.test-group }})
+    name: Python Integration (${{ matrix.test-group }})
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/python
     strategy:
       matrix:
         test-group: [crud, queries, schema]
@@ -165,3 +177,33 @@ jobs:
           USE_DOCKER: false
           TYPEDB_ADDRESS: localhost:1729
         run: uv run pytest tests/integration/${{ matrix.test-group }} -m integration -v --tb=short
+
+  # TypeScript: Build and Test
+  typescript:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/typescript
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: packages/typescript/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
