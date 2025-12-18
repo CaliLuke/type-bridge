@@ -381,7 +381,9 @@ class EntityQuery[E: Entity]:
                 iid = result["e"].get("_iid")
                 type_name = result["e"].get("_type")
                 if type_name:
-                    resolved_class = cast(type[E], resolve_entity_class(self.model_class, type_name))
+                    resolved_class = cast(
+                        type[E], resolve_entity_class(self.model_class, type_name)
+                    )
                     return resolved_class, iid
 
         return self.model_class, None
