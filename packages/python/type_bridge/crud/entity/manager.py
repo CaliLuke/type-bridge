@@ -2,7 +2,7 @@
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from typedb.driver import TransactionType
 
@@ -14,7 +14,7 @@ from type_bridge.session import Connection, ConnectionExecutor
 
 from ..base import E
 from ..exceptions import EntityNotFoundError, KeyAttributeError, NotUniqueError
-from ..utils import format_value, is_multi_value_attribute
+from ..utils import format_value, is_multi_value_attribute, resolve_entity_class
 
 if TYPE_CHECKING:
     from .group_by import GroupByQuery
@@ -229,11 +229,15 @@ class EntityManager[E: Entity]:
     def get(self, **filters) -> list[E]:
         """Get entities matching filters.
 
+        Returns entities with their actual concrete type, enabling polymorphic
+        queries. When querying a supertype, entities are instantiated as their
+        actual subtype class if the subclass is defined in Python.
+
         Args:
             filters: Attribute filters
 
         Returns:
-            List of matching entities with _iid populated
+            List of matching entities with _iid populated and correct concrete type
         """
         logger.debug(f"Get entities: {self.model_class.__name__}, filters={filters}")
         query = QueryBuilder.match_entity(self.model_class, **filters)
@@ -244,17 +248,27 @@ class EntityManager[E: Entity]:
         results = self._execute(query_str, TransactionType.READ)
         logger.debug(f"Query returned {len(results)} results")
 
-        # Convert results to entity instances
+        if not results:
+            return []
+
+        # Get IIDs and types for polymorphic instantiation
+        iid_type_map = self._get_iids_and_types(**filters)
+
+        # Convert results to entity instances with correct concrete type
         entities = []
         for result in results:
-            # Extract attributes from result
-            attrs = self._extract_attributes(result)
-            entity = self.model_class(**attrs)
-            entities.append(entity)
+            # First, resolve the entity class using key attributes from base class
+            base_attrs = self._extract_attributes(result)
+            entity_class, iid = self._match_entity_type(base_attrs, iid_type_map)
 
-        # Populate IIDs by fetching them in a second query
-        if entities:
-            self._populate_iids(entities)
+            # Then extract attributes using the resolved class (includes subtype attributes)
+            attrs = self._extract_attributes(result, entity_class)
+
+            # Create entity with the resolved class
+            entity = entity_class(**attrs)
+            if iid:
+                object.__setattr__(entity, "_iid", iid)
+            entities.append(entity)
 
         logger.info(f"Retrieved {len(entities)} entities: {self.model_class.__name__}")
         return entities
@@ -262,16 +276,20 @@ class EntityManager[E: Entity]:
     def get_by_iid(self, iid: str) -> E | None:
         """Get a single entity by its TypeDB Internal ID (IID).
 
+        Returns the entity with its actual concrete type, enabling polymorphic
+        queries. When querying a supertype by IID, the entity is instantiated
+        as its actual subtype class if the subclass is defined in Python.
+
         Args:
             iid: TypeDB IID hex string (e.g., '0x1e00000000000000000000')
 
         Returns:
-            Entity instance with _iid populated, or None if not found
+            Entity instance with _iid populated and correct concrete type, or None
 
         Example:
             entity = manager.get_by_iid("0x1e00000000000000000000")
             if entity:
-                print(f"Found: {entity.name}")
+                print(f"Found: {entity.__class__.__name__}")  # Actual subtype
         """
         logger.debug(f"Get entity by IID: {self.model_class.__name__}, iid={iid}")
 
@@ -279,28 +297,48 @@ class EntityManager[E: Entity]:
         if not iid or not iid.startswith("0x"):
             raise ValueError(f"Invalid IID format: {iid}. Expected hex string like '0x1e00...'")
 
-        # Build match query with IID filter and fetch attributes
-        # TypeQL: match $e isa <type>, iid <iid>; fetch { $e.* };
-        query_str = (
+        # First, get the actual type via select query
+        type_query = f"match\n$e isa {self.model_class.get_type_name()}, iid {iid};\nselect $e;"
+        type_results = self._execute(type_query, TransactionType.READ)
+
+        if not type_results:
+            logger.debug(f"No entity found with IID {iid}")
+            return None
+
+        # Extract actual type name
+        type_name = None
+        type_result = type_results[0]
+        if "e" in type_result and isinstance(type_result["e"], dict):
+            type_name = type_result["e"].get("_type")
+
+        # Resolve the correct class
+        entity_class: type[E] = (
+            cast(type[E], resolve_entity_class(self.model_class, type_name))
+            if type_name
+            else self.model_class
+        )
+
+        # Fetch attributes
+        fetch_query = (
             f"match\n$e isa {self.model_class.get_type_name()}, iid {iid};\nfetch {{\n  $e.*\n}};"
         )
-        logger.debug(f"Get by IID query: {query_str}")
-
-        results = self._execute(query_str, TransactionType.READ)
+        logger.debug(f"Get by IID query: {fetch_query}")
+        results = self._execute(fetch_query, TransactionType.READ)
 
         if not results:
             logger.debug(f"No entity found with IID {iid}")
             return None
 
-        # Convert result to entity instance
+        # Convert result to entity instance with correct class
         result = results[0]
-        attrs = self._extract_attributes(result)
-        entity = self.model_class(**attrs)
+        # Use resolved class for attribute extraction (includes subtype attributes)
+        attrs = self._extract_attributes(result, entity_class)
+        entity = entity_class(**attrs)
 
         # Set the IID directly since we know it
         object.__setattr__(entity, "_iid", iid)
 
-        logger.info(f"Retrieved entity by IID: {self.model_class.__name__}")
+        logger.info(f"Retrieved entity by IID: {entity_class.__name__}")
         return entity
 
     def filter(self, *expressions: Any, **filters: Any) -> "EntityQuery[E]":
@@ -816,18 +854,25 @@ class EntityManager[E: Entity]:
         logger.info(f"Entity updated: {self.model_class.__name__}")
         return entity
 
-    def _extract_attributes(self, result: dict[str, Any]) -> dict[str, Any]:
+    def _extract_attributes(
+        self, result: dict[str, Any], entity_class: type[E] | None = None
+    ) -> dict[str, Any]:
         """Extract attributes from query result.
 
         Args:
             result: Query result dictionary
+            entity_class: Optional entity class to use for attribute extraction.
+                          If None, uses self.model_class. For polymorphic queries,
+                          pass the resolved subclass to get all its attributes.
 
         Returns:
             Dictionary of attributes
         """
         attrs = {}
+        # Use provided class or default to model_class
+        target_class = entity_class if entity_class is not None else self.model_class
         # Extract attributes from all attribute classes (including inherited)
-        all_attrs = self.model_class.get_all_attributes()
+        all_attrs = target_class.get_all_attributes()
         for field_name, attr_info in all_attrs.items():
             attr_class = attr_info.typ
             attr_name = attr_class.get_attribute_name()
@@ -838,6 +883,113 @@ class EntityManager[E: Entity]:
                 is_multi_value = is_multi_value_attribute(attr_info.flags)
                 attrs[field_name] = [] if is_multi_value else None
         return attrs
+
+    def _get_iids_and_types(self, **filters: Any) -> dict[str, tuple[str, str]]:
+        """Get IIDs and type names for entities matching filters.
+
+        Performs a select query to get entity IIDs and their actual TypeDB types.
+        This enables polymorphic instantiation where subtypes are correctly identified.
+
+        Args:
+            **filters: Attribute filters (same as get())
+
+        Returns:
+            Dictionary mapping IID to (iid, type_name) tuple
+        """
+        # Build match query with filters (without fetch)
+        query = QueryBuilder.match_entity(self.model_class, **filters)
+        # Get match clause without any fetch/select
+        match_str = query.build()
+        # Remove any trailing semicolon and add select clause
+        match_str = match_str.rstrip().rstrip(";")
+        query_str = f"{match_str};\nselect $e;"
+
+        logger.debug(f"IID/type query: {query_str}")
+        results = self._execute(query_str, TransactionType.READ)
+
+        iid_type_map: dict[str, tuple[str, str]] = {}
+        for result in results:
+            if "e" in result and isinstance(result["e"], dict):
+                iid = result["e"].get("_iid")
+                type_name = result["e"].get("_type")
+                if iid and type_name:
+                    iid_type_map[iid] = (iid, type_name)
+
+        logger.debug(f"Found {len(iid_type_map)} IID/type mappings")
+        return iid_type_map
+
+    def _match_entity_type(
+        self,
+        attrs: dict[str, Any],
+        iid_type_map: dict[str, tuple[str, str]],
+    ) -> tuple[type[E], str | None]:
+        """Match entity attributes to IID/type and resolve the correct class.
+
+        Uses key attributes to find the corresponding IID/type from the map,
+        then resolves the actual Python class for polymorphic instantiation.
+
+        Args:
+            attrs: Extracted attributes for the entity
+            iid_type_map: Map from IID to (iid, type_name)
+
+        Returns:
+            Tuple of (resolved_class, iid) where resolved_class is the
+            concrete subclass if found, otherwise self.model_class
+        """
+        # If no type info available, use model_class
+        if not iid_type_map:
+            return self.model_class, None
+
+        # Get key attributes for matching
+        owned_attrs = self.model_class.get_all_attributes()
+        key_attrs = {
+            field_name: attr_info
+            for field_name, attr_info in owned_attrs.items()
+            if attr_info.flags.is_key
+        }
+
+        if not key_attrs:
+            # No key attributes - can't match reliably, use first available
+            if iid_type_map:
+                iid, type_name = next(iter(iid_type_map.values()))
+                resolved_class = cast(type[E], resolve_entity_class(self.model_class, type_name))
+                return resolved_class, iid
+            return self.model_class, None
+
+        # Build key signature from attrs for matching
+        # We need to find the IID that corresponds to these key values
+        # by querying again with just the key attributes
+        key_values = {}
+        for field_name, attr_info in key_attrs.items():
+            value = attrs.get(field_name)
+            if value is not None:
+                if hasattr(value, "value"):
+                    value = value.value
+                attr_name = attr_info.typ.get_attribute_name()
+                key_values[attr_name] = value
+
+        if not key_values:
+            # No key values found, use model_class
+            return self.model_class, None
+
+        # Query to find the specific entity's IID and type
+        match_parts = [f"$e isa {self.model_class.get_type_name()}"]
+        for attr_name, value in key_values.items():
+            match_parts.append(f"has {attr_name} {format_value(value)}")
+
+        query_str = f"match\n{', '.join(match_parts)};\nselect $e;"
+        results = self._execute(query_str, TransactionType.READ)
+
+        if results:
+            result = results[0]
+            if "e" in result and isinstance(result["e"], dict):
+                iid = result["e"].get("_iid")
+                type_name = result["e"].get("_type")
+                if type_name:
+                    resolved_class = cast(type[E], resolve_entity_class(self.model_class, type_name))
+                    return resolved_class, iid
+
+        return self.model_class, None
 
     def _populate_iids(self, entities: list[E]) -> None:
         """Populate _iid field on entities by querying TypeDB.
