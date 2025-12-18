@@ -1,7 +1,5 @@
 """Unit tests for IID extraction from TypeDB results."""
 
-import pytest
-
 from type_bridge.session import _extract_iid_from_string
 
 

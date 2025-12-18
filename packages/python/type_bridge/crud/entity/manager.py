@@ -282,11 +282,7 @@ class EntityManager[E: Entity]:
         # Build match query with IID filter and fetch attributes
         # TypeQL: match $e isa <type>, iid <iid>; fetch { $e.* };
         query_str = (
-            f"match\n"
-            f"$e isa {self.model_class.get_type_name()}, iid {iid};\n"
-            f"fetch {{\n"
-            f"  $e.*\n"
-            f"}};"
+            f"match\n$e isa {self.model_class.get_type_name()}, iid {iid};\nfetch {{\n  $e.*\n}};"
         )
         logger.debug(f"Get by IID query: {query_str}")
 

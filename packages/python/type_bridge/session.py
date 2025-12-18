@@ -54,13 +54,18 @@ def _extract_concept_row(item: Any) -> dict[str, Any]:
     - If the concept has get_iid(), use it directly
     - Otherwise, parse the IID from the string representation
 
+    For rows without any IID/type data (e.g., aggregation results),
+    falls back to string representation format for compatibility.
+
     Args:
         item: A ConceptRow object from TypeDB driver
 
     Returns:
-        Dictionary with variable names as keys, containing concept data and IID
+        Dictionary with variable names as keys, containing concept data and IID,
+        or {"result": str(item)} for aggregation/reduce query results
     """
     result: dict[str, Any] = {}
+    has_iid_data = False
 
     # Try to get column names
     try:
@@ -80,6 +85,7 @@ def _extract_concept_row(item: Any) -> dict[str, Any]:
                     iid = concept.get_iid()
                     if iid is not None:
                         concept_data["_iid"] = str(iid)
+                        has_iid_data = True
                 except Exception:
                     pass
 
@@ -100,6 +106,7 @@ def _extract_concept_row(item: Any) -> dict[str, Any]:
                 iid = _extract_iid_from_string(concept_str)
                 if iid:
                     concept_data["_iid"] = iid
+                    has_iid_data = True
 
             # Store concept data under variable name (without $)
             clean_var_name = var_name.lstrip("$")
@@ -108,6 +115,11 @@ def _extract_concept_row(item: Any) -> dict[str, Any]:
         except Exception as e:
             logger.debug(f"Error extracting concept for {var_name}: {e}")
             continue
+
+    # If no IID data was found (e.g., aggregation results), fall back to string format
+    # This is needed for reduce/aggregate queries that expect {"result": str(item)}
+    if not has_iid_data:
+        return {"result": str(item)}
 
     return result
 

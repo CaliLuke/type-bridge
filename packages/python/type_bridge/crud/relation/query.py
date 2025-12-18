@@ -578,7 +578,9 @@ class RelationQuery[R: Relation]:
                 entity = getattr(relation, role_name, None)
                 if entity is None:
                     # Can't match without role players
-                    logger.debug(f"Skipping IID population for relation without role player {role_name}")
+                    logger.debug(
+                        f"Skipping IID population for relation without role player {role_name}"
+                    )
                     continue
 
                 role_var = f"${role_name}"

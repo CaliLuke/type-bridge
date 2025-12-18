@@ -149,6 +149,7 @@ class TestGetByIid:
         found = manager.get_by_iid(iid)
         assert found is not None
         assert found.name.value == "David"
+        assert found.age is not None
         assert found.age.value == 40
         assert found._iid == iid
 
@@ -192,11 +193,7 @@ class TestRelationIidPopulation:
         IidCompany.manager(self.db).insert(company)
 
         # Insert relation
-        employment = IidEmployment(
-            employee=person,
-            employer=company,
-            position=Position("Engineer")
-        )
+        employment = IidEmployment(employee=person, employer=company, position=Position("Engineer"))
         IidEmployment.manager(self.db).insert(employment)
 
         # Fetch the relation
@@ -218,11 +215,7 @@ class TestRelationIidPopulation:
         IidCompany.manager(self.db).insert(company)
 
         # Insert relation
-        employment = IidEmployment(
-            employee=person,
-            employer=company,
-            position=Position("Manager")
-        )
+        employment = IidEmployment(employee=person, employer=company, position=Position("Manager"))
         IidEmployment.manager(self.db).insert(employment)
 
         # Get the IID
@@ -233,5 +226,6 @@ class TestRelationIidPopulation:
         # Fetch by IID
         found = IidEmployment.manager(self.db).get_by_iid(iid)
         assert found is not None
+        assert found.position is not None
         assert found.position.value == "Manager"
         assert found._iid == iid
