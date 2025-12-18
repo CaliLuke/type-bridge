@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..naming import render_all_export
+from .template_loader import get_template
 
 if TYPE_CHECKING:
     from ..models import ParsedSchema
@@ -28,6 +29,20 @@ VALUE_TYPE_MAP: Mapping[str, str] = {
 }
 
 
+@dataclass
+class AttributeContext:
+    """Context for rendering a single attribute class."""
+
+    class_name: str
+    base_class: str
+    docstring: str
+    flags_args: list[str]
+    regex: str | None = None
+    allowed_values: list[str] | None = None
+    default: object = None
+    transform: object = None
+
+
 def _resolve_value_type(
     attr_name: str,
     schema: ParsedSchema,
@@ -38,7 +53,6 @@ def _resolve_value_type(
         visited = set()
 
     if attr_name in visited:
-        # Circular inheritance - shouldn't happen but handle gracefully
         return "String"
 
     visited.add(attr_name)
@@ -61,18 +75,12 @@ def _resolve_base_class(
     schema: ParsedSchema,
     class_names: dict[str, str],
 ) -> str:
-    """Determine the base class for an attribute.
-
-    Returns either a type-bridge base class (String, Integer, etc.)
-    or a parent attribute class name for inheritance.
-    """
+    """Determine the base class for an attribute."""
     attr = schema.attributes[attr_name]
 
     if attr.parent and attr.parent in schema.attributes:
-        # Inherit from parent attribute class
         return class_names[attr.parent]
 
-    # Use the value type to determine base class
     value_type = _resolve_value_type(attr_name, schema)
     return VALUE_TYPE_MAP.get(value_type, "String")
 
@@ -83,63 +91,13 @@ def _get_required_imports(schema: ParsedSchema, class_names: dict[str, str]) -> 
 
     for attr in schema.attributes.values():
         base = _resolve_base_class(attr.name, schema, class_names)
-        # Only add to imports if it's a type-bridge class, not a parent attribute
         if base in VALUE_TYPE_MAP.values():
             imports.add(base)
 
-    # Check if any attribute uses case (needs TypeNameCase import)
     if any(attr.case for attr in schema.attributes.values()):
         imports.add("TypeNameCase")
 
     return imports
-
-
-def _render_attribute_class(
-    attr_name: str,
-    schema: ParsedSchema,
-    class_names: dict[str, str],
-) -> list[str]:
-    """Render a single attribute class definition."""
-    attr = schema.attributes[attr_name]
-    cls_name = class_names[attr_name]
-    base_class = _resolve_base_class(attr_name, schema, class_names)
-
-    lines: list[str] = []
-    lines.append(f"class {cls_name}({base_class}):")
-
-    # Docstring
-    if attr.docstring:
-        lines.append(f'    """{attr.docstring}"""')
-    else:
-        lines.append(f'    """Attribute for `{attr_name}`."""')
-
-    # Build flags arguments
-    # Note: AttributeFlags doesn't support abstract - abstract attributes use Python inheritance
-    flags_args = [f'name="{attr_name}"']
-    if attr.case:
-        flags_args.append(f"case=TypeNameCase.{attr.case}")
-
-    lines.append(f"    flags = AttributeFlags({', '.join(flags_args)})")
-
-    # Regex constraint
-    if attr.regex:
-        lines.append(f'    regex: ClassVar[str] = r"{attr.regex}"')
-
-    # Allowed values constraint
-    if attr.allowed_values:
-        values_str = ", ".join(f'"{v}"' for v in attr.allowed_values)
-        lines.append(f"    allowed_values: ClassVar[tuple[str, ...]] = ({values_str},)")
-
-    # Legacy fields
-    if attr.default is not None:
-        lines.append(f"    default_value = {attr.default!r}")
-    if attr.transform is not None:
-        lines.append(f"    transform = {attr.transform!r}")
-
-    lines.append("")
-    lines.append("")
-
-    return lines
 
 
 def _topological_sort_attributes(schema: ParsedSchema) -> list[str]:
@@ -164,6 +122,34 @@ def _topological_sort_attributes(schema: ParsedSchema) -> list[str]:
     return result
 
 
+def _build_attribute_context(
+    attr_name: str,
+    schema: ParsedSchema,
+    class_names: dict[str, str],
+) -> AttributeContext:
+    """Build template context for a single attribute."""
+    attr = schema.attributes[attr_name]
+    cls_name = class_names[attr_name]
+    base_class = _resolve_base_class(attr_name, schema, class_names)
+
+    docstring = attr.docstring if attr.docstring else f"Attribute for `{attr_name}`."
+
+    flags_args = [f'name="{attr_name}"']
+    if attr.case:
+        flags_args.append(f"case=TypeNameCase.{attr.case}")
+
+    return AttributeContext(
+        class_name=cls_name,
+        base_class=base_class,
+        docstring=docstring,
+        flags_args=flags_args,
+        regex=attr.regex,
+        allowed_values=list(attr.allowed_values) if attr.allowed_values else None,
+        default=attr.default,
+        transform=attr.transform,
+    )
+
+
 def render_attributes(schema: ParsedSchema, class_names: dict[str, str]) -> str:
     """Render the complete attributes module source.
 
@@ -175,34 +161,23 @@ def render_attributes(schema: ParsedSchema, class_names: dict[str, str]) -> str:
         Complete Python source code for attributes.py
     """
     logger.debug(f"Rendering {len(schema.attributes)} attribute classes")
-    # Check what imports we need
-    imports = _get_required_imports(schema, class_names)
+
+    imports = sorted(_get_required_imports(schema, class_names))
     uses_classvar = any(attr.allowed_values or attr.regex for attr in schema.attributes.values())
 
-    # Build header
-    lines: list[str] = [
-        '"""Attribute type definitions generated from a TypeDB schema."""',
-        "",
-    ]
-
-    if uses_classvar:
-        lines.append("from typing import ClassVar")
-        lines.append("")
-
-    # type-bridge imports
-    import_list = sorted(imports)
-    lines.append(f"from type_bridge import {', '.join(import_list)}")
-    lines.append("")
-    lines.append("")
-
-    # Render classes in topological order (parents first)
-    rendered_names: list[str] = []
+    attributes = []
+    all_names = []
     for attr_name in _topological_sort_attributes(schema):
-        rendered_names.append(class_names[attr_name])
-        lines.extend(_render_attribute_class(attr_name, schema, class_names))
+        all_names.append(class_names[attr_name])
+        attributes.append(_build_attribute_context(attr_name, schema, class_names))
 
-    # Add __all__ export
-    lines.extend(render_all_export(rendered_names))
+    template = get_template("attributes.py.jinja")
+    result = template.render(
+        imports=imports,
+        uses_classvar=uses_classvar,
+        attributes=attributes,
+        all_names=sorted(all_names),
+    )
 
-    logger.info(f"Rendered {len(rendered_names)} attribute classes")
-    return "\n".join(lines)
+    logger.info(f"Rendered {len(all_names)} attribute classes")
+    return result

@@ -1,0 +1,33 @@
+"""Attribute type definitions generated from a TypeDB schema."""
+{% if uses_classvar %}
+
+from typing import ClassVar
+{% endif %}
+
+from type_bridge import {{ imports | join(', ') }}
+
+
+{% for attr in attributes %}
+class {{ attr.class_name }}({{ attr.base_class }}):
+    """{{ attr.docstring }}"""
+    flags = AttributeFlags({{ attr.flags_args | join(', ') }})
+{% if attr.regex %}
+    regex: ClassVar[str] = r"{{ attr.regex }}"
+{% endif %}
+{% if attr.allowed_values %}
+    allowed_values: ClassVar[tuple[str, ...]] = ({{ attr.allowed_values | map('tojson') | join(', ') }},)
+{% endif %}
+{% if attr.default is not none %}
+    default_value = {{ attr.default | repr }}
+{% endif %}
+{% if attr.transform is not none %}
+    transform = {{ attr.transform | repr }}
+{% endif %}
+
+
+{% endfor %}
+__all__ = [
+{% for name in all_names %}
+    "{{ name }}",
+{% endfor %}
+]

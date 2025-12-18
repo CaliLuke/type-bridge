@@ -1,20 +1,21 @@
 """CLI for TypeBridge migrations.
 
 Usage:
-    python -m type_bridge.migration migrate                    # Apply all pending
-    python -m type_bridge.migration migrate 0002_add_company   # Migrate to specific
-    python -m type_bridge.migration showmigrations             # List status
-    python -m type_bridge.migration sqlmigrate 0002_add_company        # Preview TypeQL
-    python -m type_bridge.migration sqlmigrate 0002_add_company -r     # Preview rollback
-    python -m type_bridge.migration makemigrations -n add_phone        # Generate migration
+    type-bridge migrate                              # Apply all pending
+    type-bridge migrate 0002_add_company             # Migrate to specific
+    type-bridge showmigrations                       # List status
+    type-bridge sqlmigrate 0002_add_company          # Preview TypeQL
+    type-bridge sqlmigrate 0002_add_company -r       # Preview rollback
+    type-bridge makemigrations -n add_phone          # Generate migration
 """
 
 from __future__ import annotations
 
-import argparse
 import logging
-import sys
 from pathlib import Path
+from typing import Annotated
+
+import typer
 
 from type_bridge.migration.executor import MigrationError, MigrationExecutor
 from type_bridge.migration.generator import MigrationGenerator
@@ -23,299 +24,343 @@ from type_bridge.session import Database
 
 logger = logging.getLogger(__name__)
 
+app = typer.Typer(
+    name="type-bridge",
+    help="TypeBridge database migration tool",
+    no_args_is_help=True,
+)
 
-def main(argv: list[str] | None = None) -> int:
-    """Main CLI entry point.
 
-    Args:
-        argv: Command line arguments (defaults to sys.argv)
+def _get_db_and_executor(
+    database: str,
+    address: str,
+    migrations_dir: Path,
+    dry_run: bool,
+) -> tuple[Database, MigrationExecutor]:
+    """Connect to database and create executor."""
+    db = Database(address=address, database=database)
+    db.connect()
+    executor = MigrationExecutor(db=db, migrations_dir=migrations_dir, dry_run=dry_run)
+    return db, executor
 
-    Returns:
-        Exit code (0 for success, non-zero for error)
-    """
-    parser = argparse.ArgumentParser(
-        prog="python -m type_bridge.migration",
-        description="TypeBridge database migration tool",
-    )
 
-    parser.add_argument(
-        "--database",
-        "-d",
-        default="typedb",
-        help="Database name (default: typedb)",
-    )
-    parser.add_argument(
-        "--address",
-        "-a",
-        default="localhost:1729",
-        help="TypeDB server address (default: localhost:1729)",
-    )
-    parser.add_argument(
-        "--migrations-dir",
-        "-m",
-        type=Path,
-        default=Path("migrations"),
-        help="Migrations directory (default: ./migrations)",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show what would be done without executing",
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Verbose output",
-    )
-
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # migrate command
-    migrate_parser = subparsers.add_parser(
-        "migrate",
-        help="Apply migrations",
-    )
-    migrate_parser.add_argument(
-        "target",
-        nargs="?",
-        help="Target migration name (default: apply all pending)",
-    )
-
-    # showmigrations command
-    subparsers.add_parser(
-        "showmigrations",
-        help="List all migrations and their status",
-    )
-
-    # sqlmigrate command
-    sql_parser = subparsers.add_parser(
-        "sqlmigrate",
-        help="Show TypeQL for a migration",
-    )
-    sql_parser.add_argument(
-        "migration_name",
-        help="Migration name to show",
-    )
-    sql_parser.add_argument(
-        "--reverse",
-        "-r",
-        action="store_true",
-        help="Show rollback TypeQL",
-    )
-
-    # makemigrations command
-    make_parser = subparsers.add_parser(
-        "makemigrations",
-        help="Auto-generate migration from model changes",
-    )
-    make_parser.add_argument(
-        "--name",
-        "-n",
-        default="auto",
-        help="Migration name suffix",
-    )
-    make_parser.add_argument(
-        "--empty",
-        action="store_true",
-        help="Create empty migration for manual editing",
-    )
-    make_parser.add_argument(
-        "--models",
-        "-M",
-        type=str,
-        help="Python path to models module (e.g., myapp.models)",
-    )
-
-    # plan command
-    plan_parser = subparsers.add_parser(
-        "plan",
-        help="Show migration plan without executing",
-    )
-    plan_parser.add_argument(
-        "target",
-        nargs="?",
-        help="Target migration name",
-    )
-
-    args = parser.parse_args(argv)
-
-    # Setup logging
-    level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(levelname)s: %(message)s",
-    )
+@app.command()
+def migrate(
+    target: Annotated[
+        str | None,
+        typer.Argument(help="Target migration name (default: apply all pending)"),
+    ] = None,
+    database: Annotated[
+        str,
+        typer.Option("--database", "-d", help="Database name"),
+    ] = "typedb",
+    address: Annotated[
+        str,
+        typer.Option("--address", "-a", help="TypeDB server address"),
+    ] = "localhost:1729",
+    migrations_dir: Annotated[
+        Path,
+        typer.Option("--migrations-dir", "-m", help="Migrations directory"),
+    ] = Path("migrations"),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show what would be done without executing"),
+    ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Verbose output"),
+    ] = False,
+) -> None:
+    """Apply migrations."""
+    _setup_logging(verbose)
 
     try:
-        # Connect to database
-        db = Database(address=args.address, database=args.database)
-        db.connect()
-
-        result = _execute_command(db, args)
-
+        db, executor = _get_db_and_executor(database, address, migrations_dir, dry_run)
+        results = executor.migrate(target=target)
         db.close()
-        return result
+
+        if not results:
+            typer.echo("No migrations to apply")
+            return
+
+        for result in results:
+            status = "OK" if result.success else "FAILED"
+            action = "Applied" if result.action == "applied" else "Rolled back"
+            typer.echo(f"  {action}: {result.name} ... {status}")
+            if result.error:
+                typer.echo(f"    Error: {result.error}")
+
+        success_count = sum(1 for r in results if r.success)
+        typer.echo(f"\n{success_count}/{len(results)} migration(s) completed")
+
+        if not all(r.success for r in results):
+            raise typer.Exit(1)
 
     except MigrationError as e:
-        print(f"Migration error: {e}", file=sys.stderr)
-        return 1
+        typer.echo(f"Migration error: {e}", err=True)
+        raise typer.Exit(1)
     except ConnectionError as e:
-        print(f"Connection error: {e}", file=sys.stderr)
-        print("Make sure TypeDB server is running and accessible.", file=sys.stderr)
-        return 1
+        typer.echo(f"Connection error: {e}", err=True)
+        typer.echo("Make sure TypeDB server is running and accessible.", err=True)
+        raise typer.Exit(1)
     except Exception as e:
         logger.exception("Unexpected error")
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
 
-def _execute_command(db: Database, args: argparse.Namespace) -> int:
-    """Execute the specified command.
+@app.command()
+def showmigrations(
+    database: Annotated[
+        str,
+        typer.Option("--database", "-d", help="Database name"),
+    ] = "typedb",
+    address: Annotated[
+        str,
+        typer.Option("--address", "-a", help="TypeDB server address"),
+    ] = "localhost:1729",
+    migrations_dir: Annotated[
+        Path,
+        typer.Option("--migrations-dir", "-m", help="Migrations directory"),
+    ] = Path("migrations"),
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Verbose output"),
+    ] = False,
+) -> None:
+    """List all migrations and their status."""
+    _setup_logging(verbose)
 
-    Args:
-        db: Database connection
-        args: Parsed arguments
+    try:
+        db, executor = _get_db_and_executor(database, address, migrations_dir, dry_run=False)
+        migrations = executor.showmigrations()
+        db.close()
 
-    Returns:
-        Exit code
-    """
-    # Create executor
-    executor = MigrationExecutor(
-        db=db,
-        migrations_dir=args.migrations_dir,
-        dry_run=args.dry_run,
-    )
+        if not migrations:
+            typer.echo("No migrations found")
+            return
 
-    if args.command == "migrate":
-        return _cmd_migrate(executor, args)
-    elif args.command == "showmigrations":
-        return _cmd_showmigrations(executor)
-    elif args.command == "sqlmigrate":
-        return _cmd_sqlmigrate(executor, args)
-    elif args.command == "makemigrations":
-        return _cmd_makemigrations(db, args)
-    elif args.command == "plan":
-        return _cmd_plan(executor, args)
-    else:
-        print(f"Unknown command: {args.command}", file=sys.stderr)
-        return 1
+        app_label = migrations_dir.name
+        typer.echo(app_label)
 
+        for name, is_applied in migrations:
+            status = "[X]" if is_applied else "[ ]"
+            typer.echo(f" {status} {name}")
 
-def _cmd_migrate(executor: MigrationExecutor, args: argparse.Namespace) -> int:
-    """Execute migrate command."""
-    results = executor.migrate(target=args.target)
-
-    if not results:
-        print("No migrations to apply")
-        return 0
-
-    for result in results:
-        status = "OK" if result.success else "FAILED"
-        action = "Applied" if result.action == "applied" else "Rolled back"
-        print(f"  {action}: {result.name} ... {status}")
-        if result.error:
-            print(f"    Error: {result.error}")
-
-    success_count = sum(1 for r in results if r.success)
-    print(f"\n{success_count}/{len(results)} migration(s) completed")
-
-    return 0 if all(r.success for r in results) else 1
+    except MigrationError as e:
+        typer.echo(f"Migration error: {e}", err=True)
+        raise typer.Exit(1)
+    except ConnectionError as e:
+        typer.echo(f"Connection error: {e}", err=True)
+        typer.echo("Make sure TypeDB server is running and accessible.", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.exception("Unexpected error")
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
 
-def _cmd_showmigrations(executor: MigrationExecutor) -> int:
-    """Execute showmigrations command."""
-    migrations = executor.showmigrations()
+@app.command()
+def sqlmigrate(
+    migration_name: Annotated[
+        str,
+        typer.Argument(help="Migration name to show"),
+    ],
+    reverse: Annotated[
+        bool,
+        typer.Option("--reverse", "-r", help="Show rollback TypeQL"),
+    ] = False,
+    database: Annotated[
+        str,
+        typer.Option("--database", "-d", help="Database name"),
+    ] = "typedb",
+    address: Annotated[
+        str,
+        typer.Option("--address", "-a", help="TypeDB server address"),
+    ] = "localhost:1729",
+    migrations_dir: Annotated[
+        Path,
+        typer.Option("--migrations-dir", "-m", help="Migrations directory"),
+    ] = Path("migrations"),
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Verbose output"),
+    ] = False,
+) -> None:
+    """Show TypeQL for a migration."""
+    _setup_logging(verbose)
 
-    if not migrations:
-        print("No migrations found")
-        return 0
+    try:
+        db, executor = _get_db_and_executor(database, address, migrations_dir, dry_run=False)
+        typeql = executor.sqlmigrate(migration_name, reverse=reverse)
+        db.close()
+        typer.echo(typeql)
 
-    app_label = executor.migrations_dir.name
-    print(app_label)
-
-    for name, is_applied in migrations:
-        status = "[X]" if is_applied else "[ ]"
-        print(f" {status} {name}")
-
-    return 0
-
-
-def _cmd_sqlmigrate(executor: MigrationExecutor, args: argparse.Namespace) -> int:
-    """Execute sqlmigrate command."""
-    typeql = executor.sqlmigrate(
-        args.migration_name,
-        reverse=args.reverse,
-    )
-    print(typeql)
-    return 0
+    except MigrationError as e:
+        typer.echo(f"Migration error: {e}", err=True)
+        raise typer.Exit(1)
+    except ConnectionError as e:
+        typer.echo(f"Connection error: {e}", err=True)
+        typer.echo("Make sure TypeDB server is running and accessible.", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.exception("Unexpected error")
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
 
-def _cmd_makemigrations(db: Database, args: argparse.Namespace) -> int:
-    """Execute makemigrations command."""
-    generator = MigrationGenerator(db, args.migrations_dir)
+@app.command()
+def makemigrations(
+    name: Annotated[
+        str,
+        typer.Option("--name", "-n", help="Migration name suffix"),
+    ] = "auto",
+    empty: Annotated[
+        bool,
+        typer.Option("--empty", help="Create empty migration for manual editing"),
+    ] = False,
+    models: Annotated[
+        str | None,
+        typer.Option("--models", "-M", help="Python path to models module (e.g., myapp.models)"),
+    ] = None,
+    database: Annotated[
+        str,
+        typer.Option("--database", "-d", help="Database name"),
+    ] = "typedb",
+    address: Annotated[
+        str,
+        typer.Option("--address", "-a", help="TypeDB server address"),
+    ] = "localhost:1729",
+    migrations_dir: Annotated[
+        Path,
+        typer.Option("--migrations-dir", "-m", help="Migrations directory"),
+    ] = Path("migrations"),
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Verbose output"),
+    ] = False,
+) -> None:
+    """Auto-generate migration from model changes."""
+    _setup_logging(verbose)
 
-    # Get models from specified source
-    models: list = []
+    try:
+        db = Database(address=address, database=database)
+        db.connect()
+        generator = MigrationGenerator(db, migrations_dir)
 
-    if args.models:
-        # Auto-discover models from specified module
-        try:
-            models = ModelRegistry.discover(args.models, register=False)
-            print(f"Discovered {len(models)} model(s) from {args.models}")
-        except ImportError as e:
-            print(f"Error importing models module: {e}", file=sys.stderr)
-            return 1
-    else:
-        # Use pre-registered models
-        models = ModelRegistry.get_all()
+        model_list: list = []
+
         if models:
-            print(f"Using {len(models)} registered model(s)")
+            try:
+                model_list = ModelRegistry.discover(models, register=False)
+                typer.echo(f"Discovered {len(model_list)} model(s) from {models}")
+            except ImportError as e:
+                typer.echo(f"Error importing models module: {e}", err=True)
+                raise typer.Exit(1)
+        else:
+            model_list = ModelRegistry.get_all()
+            if model_list:
+                typer.echo(f"Using {len(model_list)} registered model(s)")
 
-    if not models and not args.empty:
-        print(
-            "No models found. Either:\n"
-            "  1. Use --models to specify a module: makemigrations --models myapp.models\n"
-            "  2. Register models with ModelRegistry.register() before running\n"
-            "  3. Use --empty to create an empty migration for manual editing",
-            file=sys.stderr,
-        )
-        return 1
+        if not model_list and not empty:
+            typer.echo(
+                "No models found. Either:\n"
+                "  1. Use --models to specify a module: makemigrations --models myapp.models\n"
+                "  2. Register models with ModelRegistry.register() before running\n"
+                "  3. Use --empty to create an empty migration for manual editing",
+                err=True,
+            )
+            raise typer.Exit(1)
 
-    path = generator.generate(
-        models=models,
-        name=args.name,
-        empty=args.empty,
-    )
+        path = generator.generate(models=model_list, name=name, empty=empty)
+        db.close()
 
-    if path:
-        print(f"Created: {path}")
-    else:
-        print("No changes detected")
+        if path:
+            typer.echo(f"Created: {path}")
+        else:
+            typer.echo("No changes detected")
 
-    return 0
+    except MigrationError as e:
+        typer.echo(f"Migration error: {e}", err=True)
+        raise typer.Exit(1)
+    except ConnectionError as e:
+        typer.echo(f"Connection error: {e}", err=True)
+        typer.echo("Make sure TypeDB server is running and accessible.", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.exception("Unexpected error")
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
 
-def _cmd_plan(executor: MigrationExecutor, args: argparse.Namespace) -> int:
-    """Execute plan command."""
-    plan = executor.plan(target=args.target)
+@app.command()
+def plan(
+    target: Annotated[
+        str | None,
+        typer.Argument(help="Target migration name"),
+    ] = None,
+    database: Annotated[
+        str,
+        typer.Option("--database", "-d", help="Database name"),
+    ] = "typedb",
+    address: Annotated[
+        str,
+        typer.Option("--address", "-a", help="TypeDB server address"),
+    ] = "localhost:1729",
+    migrations_dir: Annotated[
+        Path,
+        typer.Option("--migrations-dir", "-m", help="Migrations directory"),
+    ] = Path("migrations"),
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Verbose output"),
+    ] = False,
+) -> None:
+    """Show migration plan without executing."""
+    _setup_logging(verbose)
 
-    if plan.is_empty():
-        print("No migrations pending")
-        return 0
+    try:
+        db, executor = _get_db_and_executor(database, address, migrations_dir, dry_run=False)
+        migration_plan = executor.plan(target=target)
+        db.close()
 
-    if plan.to_rollback:
-        print("Rollback:")
-        for loaded in plan.to_rollback:
-            print(f"  - {loaded.migration.name}")
+        if migration_plan.is_empty():
+            typer.echo("No migrations pending")
+            return
 
-    if plan.to_apply:
-        print("Apply:")
-        for loaded in plan.to_apply:
-            print(f"  + {loaded.migration.name}")
+        if migration_plan.to_rollback:
+            typer.echo("Rollback:")
+            for loaded in migration_plan.to_rollback:
+                typer.echo(f"  - {loaded.migration.name}")
 
-    return 0
+        if migration_plan.to_apply:
+            typer.echo("Apply:")
+            for loaded in migration_plan.to_apply:
+                typer.echo(f"  + {loaded.migration.name}")
+
+    except MigrationError as e:
+        typer.echo(f"Migration error: {e}", err=True)
+        raise typer.Exit(1)
+    except ConnectionError as e:
+        typer.echo(f"Connection error: {e}", err=True)
+        typer.echo("Make sure TypeDB server is running and accessible.", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.exception("Unexpected error")
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+
+def _setup_logging(verbose: bool) -> None:
+    """Configure logging based on verbosity."""
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+
+
+def main() -> None:
+    """Entry point for the CLI."""
+    app()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

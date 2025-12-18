@@ -25,9 +25,12 @@ uv pip install -e ".[dev]"
 ### Project Dependencies
 
 The project requires:
-- `typedb-driver==3.7.0`: Official Python driver for TypeDB connectivity
-- `pydantic>=2.0`: For validation and type coercion
+- `typedb-driver>=3.7.0`: Official Python driver for TypeDB connectivity
+- `pydantic>=2.12.4`: For validation and type coercion
 - `isodate==0.7.2`: For Duration type support (ISO 8601)
+- `lark>=1.1.9`: Parser toolkit for TypeQL schema parsing
+- `jinja2>=3.1.0`: Template engine for code generation
+- `typer>=0.15.0`: CLI framework for generator and migration tools
 
 Development dependencies include:
 - `pytest`: Testing framework

@@ -48,20 +48,17 @@ generate_models(schema, "./myapp/models/")
 ## CLI Reference
 
 ```
-python -m type_bridge.generator [-h] -o DIR [--version VERSION]
-                                [--no-copy-schema]
-                                [--implicit-keys [ATTR ...]]
-                                schema
+Usage: python -m type_bridge.generator [OPTIONS] SCHEMA
 
-positional arguments:
-  schema                Path to the TypeDB schema file (.tql)
+Arguments:
+  SCHEMA  Path to the TypeDB schema file (.tql) [required]
 
-options:
-  -h, --help            Show help message and exit
-  -o, --output DIR      Output directory for generated package (required)
-  --version VERSION     Schema version string (default: 1.0.0)
-  --no-copy-schema      Don't copy the schema file to the output directory
-  --implicit-keys       Attribute names to treat as @key even if not marked
+Options:
+  -o, --output PATH       Output directory for generated package [required]
+  --version TEXT          Schema version string [default: 1.0.0]
+  --no-copy-schema        Don't copy the schema file to the output directory
+  --implicit-keys TEXT    Attribute names to treat as @key even if not marked
+  --help                  Show this message and exit
 ```
 
 The `--output` directory is **required**. We recommend a dedicated directory like `./myapp/models/` or `./src/schema/` to keep generated code separate from hand-written code.

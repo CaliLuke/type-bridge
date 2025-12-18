@@ -3,14 +3,29 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ..naming import render_all_export, to_python_name
+from ..naming import to_python_name
+from .template_loader import get_template
 
 if TYPE_CHECKING:
     from ..models import Cardinality, ParsedSchema
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class EntityContext:
+    """Context for rendering a single entity class."""
+
+    class_name: str
+    base_class: str
+    docstring: str
+    flags_args: list[str]
+    prefix: str | None = None
+    plays: list[str] = field(default_factory=list)
+    fields: list[str] = field(default_factory=list)
 
 
 def _render_attr_field(
@@ -20,126 +35,27 @@ def _render_attr_field(
     is_unique: bool,
     cardinality: Cardinality | None,
 ) -> str:
-    """Render a single attribute field declaration.
-
-    Returns a string like:
-    - "    name: attributes.Name = Flag(Key)"
-    - "    age: attributes.Age | None = None"
-    - "    tags: list[attributes.Tag] = Flag(Card(min=0))"
-    """
+    """Render a single attribute field declaration."""
     py_name = to_python_name(attr_name)
 
     if is_key:
-        return f"    {py_name}: attributes.{attr_class} = Flag(Key)"
+        return f"{py_name}: attributes.{attr_class} = Flag(Key)"
 
     if is_unique:
-        return f"    {py_name}: attributes.{attr_class} = Flag(Unique)"
+        return f"{py_name}: attributes.{attr_class} = Flag(Unique)"
 
-    # Handle cardinality
     if cardinality is None or cardinality.is_optional_single:
-        return f"    {py_name}: attributes.{attr_class} | None = None"
+        return f"{py_name}: attributes.{attr_class} | None = None"
 
     if cardinality.is_multi:
-        # Multi-value attributes require Flag(Card(...))
         if cardinality.max is None:
-            # Unbounded: @card(min..)
-            return (
-                f"    {py_name}: list[attributes.{attr_class}] = Flag(Card(min={cardinality.min}))"
-            )
-        # Bounded: @card(min..max)
-        return f"    {py_name}: list[attributes.{attr_class}] = Flag(Card({cardinality.min}, {cardinality.max}))"
+            return f"{py_name}: list[attributes.{attr_class}] = Flag(Card(min={cardinality.min}))"
+        return f"{py_name}: list[attributes.{attr_class}] = Flag(Card({cardinality.min}, {cardinality.max}))"
 
-    # Single required value
     if cardinality.is_required and cardinality.is_single:
-        return f"    {py_name}: attributes.{attr_class}"
+        return f"{py_name}: attributes.{attr_class}"
 
-    return f"    {py_name}: attributes.{attr_class} | None = None"
-
-
-def _render_plays_tuple(plays: set[str]) -> list[str]:
-    """Render plays ClassVar as multi-line tuple for readability."""
-    if not plays:
-        return []
-
-    sorted_plays = sorted(plays)
-    if len(sorted_plays) == 1:
-        return [f'    plays: ClassVar[tuple[str, ...]] = ("{sorted_plays[0]}",)']
-
-    lines = ["    plays: ClassVar[tuple[str, ...]] = ("]
-    for play in sorted_plays:
-        lines.append(f'        "{play}",')
-    lines.append("    )")
-    return lines
-
-
-def _render_entity_class(
-    entity_name: str,
-    schema: ParsedSchema,
-    attr_class_names: dict[str, str],
-    entity_class_names: dict[str, str],
-    implicit_keys: set[str],
-) -> list[str]:
-    """Render a single entity class definition."""
-    entity = schema.entities[entity_name]
-    cls_name = entity_class_names[entity_name]
-
-    # Determine base class
-    if entity.parent and entity.parent in entity_class_names:
-        base_class = entity_class_names[entity.parent]
-    else:
-        base_class = "Entity"
-
-    lines: list[str] = []
-    lines.append(f"class {cls_name}({base_class}):")
-
-    # Docstring
-    if entity.docstring:
-        lines.append(f'    """{entity.docstring}"""')
-    else:
-        lines.append(f'    """Entity generated from `{entity_name}`."""')
-
-    # TypeFlags
-    flag_args = [f'name="{entity_name}"']
-    if entity.abstract:
-        flag_args.append("abstract=True")
-    lines.append(f"    flags = TypeFlags({', '.join(flag_args)})")
-
-    # Prefix (legacy custom annotation)
-    if entity.prefix:
-        lines.append(f'    prefix: ClassVar[str] = "{entity.prefix}"')
-
-    # Plays tuple
-    if entity.plays:
-        lines.extend(_render_plays_tuple(entity.plays))
-
-    # Attributes - only render those not inherited from parent
-    parent_owns = set()
-    if entity.parent and entity.parent in schema.entities:
-        parent_owns = schema.entities[entity.parent].owns
-
-    own_attrs = [a for a in entity.owns_order if a not in parent_owns]
-    key_attrs = (entity.keys | implicit_keys) & entity.owns
-    unique_attrs = entity.uniques & entity.owns
-
-    for attr in own_attrs:
-        if attr not in attr_class_names:
-            continue
-        attr_class = attr_class_names[attr]
-        cardinality = entity.cardinalities.get(attr)
-        lines.append(
-            _render_attr_field(
-                attr_name=attr,
-                attr_class=attr_class,
-                is_key=attr in key_attrs,
-                is_unique=attr in unique_attrs,
-                cardinality=cardinality,
-            )
-        )
-
-    lines.append("")
-    lines.append("")
-
-    return lines
+    return f"{py_name}: attributes.{attr_class} | None = None"
 
 
 def _topological_sort_entities(schema: ParsedSchema) -> list[str]:
@@ -173,6 +89,64 @@ def _needs_card_import(schema: ParsedSchema) -> bool:
     )
 
 
+def _build_entity_context(
+    entity_name: str,
+    schema: ParsedSchema,
+    attr_class_names: dict[str, str],
+    entity_class_names: dict[str, str],
+    implicit_keys: set[str],
+) -> EntityContext:
+    """Build template context for a single entity."""
+    entity = schema.entities[entity_name]
+    cls_name = entity_class_names[entity_name]
+
+    if entity.parent and entity.parent in entity_class_names:
+        base_class = entity_class_names[entity.parent]
+    else:
+        base_class = "Entity"
+
+    docstring = entity.docstring if entity.docstring else f"Entity generated from `{entity_name}`."
+
+    flags_args = [f'name="{entity_name}"']
+    if entity.abstract:
+        flags_args.append("abstract=True")
+
+    # Attributes - only render those not inherited from parent
+    parent_owns = set()
+    if entity.parent and entity.parent in schema.entities:
+        parent_owns = schema.entities[entity.parent].owns
+
+    own_attrs = [a for a in entity.owns_order if a not in parent_owns]
+    key_attrs = (entity.keys | implicit_keys) & entity.owns
+    unique_attrs = entity.uniques & entity.owns
+
+    fields = []
+    for attr in own_attrs:
+        if attr not in attr_class_names:
+            continue
+        attr_class = attr_class_names[attr]
+        cardinality = entity.cardinalities.get(attr)
+        fields.append(
+            _render_attr_field(
+                attr_name=attr,
+                attr_class=attr_class,
+                is_key=attr in key_attrs,
+                is_unique=attr in unique_attrs,
+                cardinality=cardinality,
+            )
+        )
+
+    return EntityContext(
+        class_name=cls_name,
+        base_class=base_class,
+        docstring=docstring,
+        flags_args=flags_args,
+        prefix=entity.prefix,
+        plays=sorted(entity.plays) if entity.plays else [],
+        fields=fields,
+    )
+
+
 def render_entities(
     schema: ParsedSchema,
     attr_class_names: dict[str, str],
@@ -194,30 +168,16 @@ def render_entities(
     implicit_keys = implicit_key_attributes or set()
     needs_card = _needs_card_import(schema)
 
-    # Build header
-    lines: list[str] = [
-        '"""Entity type definitions generated from a TypeDB schema."""',
-        "",
-        "from typing import ClassVar",
-        "",
-    ]
-
-    # Build type_bridge imports
     imports = ["Entity", "Flag", "Key", "TypeFlags", "Unique"]
     if needs_card:
-        imports.insert(1, "Card")  # Insert after Entity alphabetically
-    lines.append(f"from type_bridge import {', '.join(imports)}")
-    lines.append("")
-    lines.append("from . import attributes")
-    lines.append("")
-    lines.append("")
+        imports.insert(1, "Card")
 
-    # Render classes in topological order
-    rendered_names: list[str] = []
+    entities = []
+    all_names = []
     for entity_name in _topological_sort_entities(schema):
-        rendered_names.append(entity_class_names[entity_name])
-        lines.extend(
-            _render_entity_class(
+        all_names.append(entity_class_names[entity_name])
+        entities.append(
+            _build_entity_context(
                 entity_name,
                 schema,
                 attr_class_names,
@@ -226,8 +186,12 @@ def render_entities(
             )
         )
 
-    # Add __all__ export
-    lines.extend(render_all_export(rendered_names))
+    template = get_template("entities.py.jinja")
+    result = template.render(
+        imports=imports,
+        entities=entities,
+        all_names=sorted(all_names),
+    )
 
-    logger.info(f"Rendered {len(rendered_names)} entity classes")
-    return "\n".join(lines)
+    logger.info(f"Rendered {len(all_names)} entity classes")
+    return result

@@ -1,0 +1,37 @@
+"""Relation type definitions generated from a TypeDB schema."""
+
+from type_bridge import Relation, Role, TypeFlags
+
+from . import attributes, entities
+
+
+def _multi(role: Role) -> Role:
+    """Attach allowed_player_types for compatibility with MultiRole."""
+    role.allowed_player_types = role.player_entity_types
+    return role
+
+
+{% for relation in relations %}
+class {{ relation.class_name }}({{ relation.base_class }}):
+    """{{ relation.docstring }}"""
+    flags = TypeFlags({{ relation.flags_args | join(', ') }})
+{% for attr_field in relation.attr_fields %}
+    {{ attr_field }}
+{% endfor %}
+{% for role_field in relation.role_fields %}
+    {{ role_field }}
+{% endfor %}
+
+
+{% endfor %}
+def get_roles(relation_cls: type[Relation]) -> dict[str, Role]:
+    """Expose relation roles for introspection."""
+    return relation_cls.get_roles()
+
+
+__all__ = [
+{% for name in all_names %}
+    "{{ name }}",
+{% endfor %}
+    "get_roles",
+]
