@@ -9,6 +9,7 @@ statement: attribute_def
          | entity_def
          | relation_def
          | function_def
+         | struct_def
          | comment_annotation
 
 // --- Attributes ---
@@ -35,9 +36,11 @@ entity_clause: sub_clause | abstract_annotation | owns_statement | plays_stateme
 
 owns_statement: "owns" IDENTIFIER [owns_opts]
 
-owns_opts: (key_annotation | unique_annotation | card_annotation)+
+owns_opts: (key_annotation | unique_annotation | cascade_annotation | subkey_annotation | card_annotation)+
 key_annotation: "@key"
 unique_annotation: "@unique"
+cascade_annotation: "@cascade"
+subkey_annotation: "@subkey" "(" IDENTIFIER ")"
 card_annotation: "@card" "(" INT [DOT_DOT [INT]] ")"
 
 plays_statement: "plays" IDENTIFIER [":" IDENTIFIER] [card_annotation]
@@ -47,7 +50,14 @@ relation_def: "relation" IDENTIFIER (","? relation_clause)* ";"
 
 relation_clause: sub_clause | abstract_annotation | relates_statement | owns_statement | plays_statement
 
-relates_statement: "relates" IDENTIFIER ["as" IDENTIFIER] [card_annotation]
+relates_statement: "relates" IDENTIFIER ["as" IDENTIFIER] [relates_opts]
+relates_opts: (card_annotation | distinct_annotation)+
+distinct_annotation: "@distinct"
+
+// --- Structs (TypeDB 3.0) ---
+struct_def: "struct" IDENTIFIER ","? struct_fields ";"
+struct_fields: struct_field (","? struct_field)* ","?
+struct_field: "value" IDENTIFIER value_type OPTIONAL?
 
 // --- Functions ---
 function_def: "fun" IDENTIFIER "(" param_list? ")" "->" return_type_clause ":" func_body

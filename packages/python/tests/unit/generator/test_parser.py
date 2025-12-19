@@ -683,3 +683,206 @@ class TestParseComments:
         """)
         assert "name" in schema.attributes
         assert "person" in schema.entities
+
+
+class TestParseStructs:
+    """Tests for struct parsing (TypeDB 3.0 feature)."""
+
+    def test_simple_struct(self) -> None:
+        """Parse a simple struct with two fields."""
+        schema = parse_tql_schema("""
+            define
+            struct person-name,
+                value first-name string,
+                value last-name string;
+        """)
+        assert "person-name" in schema.structs
+        struct = schema.structs["person-name"]
+        assert struct.name == "person-name"
+        assert len(struct.fields) == 2
+
+        first_name = struct.fields[0]
+        assert first_name.name == "first-name"
+        assert first_name.value_type == "string"
+        assert first_name.optional is False
+
+        last_name = struct.fields[1]
+        assert last_name.name == "last-name"
+        assert last_name.value_type == "string"
+        assert last_name.optional is False
+
+    def test_struct_with_optional_field(self) -> None:
+        """Parse a struct with an optional field."""
+        schema = parse_tql_schema("""
+            define
+            struct address,
+                value street string,
+                value apartment string?,
+                value city string;
+        """)
+        struct = schema.structs["address"]
+        assert len(struct.fields) == 3
+
+        street = struct.fields[0]
+        assert street.name == "street"
+        assert street.optional is False
+
+        apartment = struct.fields[1]
+        assert apartment.name == "apartment"
+        assert apartment.value_type == "string"
+        assert apartment.optional is True
+
+        city = struct.fields[2]
+        assert city.name == "city"
+        assert city.optional is False
+
+    def test_struct_with_various_types(self) -> None:
+        """Parse a struct with different value types."""
+        schema = parse_tql_schema("""
+            define
+            struct measurement,
+                value name string,
+                value amount double,
+                value count integer,
+                value is-valid boolean,
+                value timestamp datetime;
+        """)
+        struct = schema.structs["measurement"]
+        assert len(struct.fields) == 5
+
+        types = [f.value_type for f in struct.fields]
+        assert types == ["string", "double", "integer", "boolean", "datetime"]
+
+    def test_multiple_structs(self) -> None:
+        """Parse multiple struct definitions."""
+        schema = parse_tql_schema("""
+            define
+            struct point,
+                value x double,
+                value y double;
+
+            struct rectangle,
+                value width double,
+                value height double;
+        """)
+        assert "point" in schema.structs
+        assert "rectangle" in schema.structs
+        assert len(schema.structs["point"].fields) == 2
+        assert len(schema.structs["rectangle"].fields) == 2
+
+
+class TestParseCascadeAnnotation:
+    """Tests for @cascade annotation parsing."""
+
+    def test_entity_owns_cascade(self) -> None:
+        """Parse entity with @cascade on owns."""
+        schema = parse_tql_schema("""
+            define
+            attribute email, value string;
+            entity person,
+                owns email @cascade;
+        """)
+        entity = schema.entities["person"]
+        assert "email" in entity.cascades
+
+    def test_cascade_with_other_annotations(self) -> None:
+        """Parse @cascade alongside @key."""
+        schema = parse_tql_schema("""
+            define
+            attribute email, value string;
+            entity person,
+                owns email @key @cascade;
+        """)
+        entity = schema.entities["person"]
+        assert "email" in entity.keys
+        assert "email" in entity.cascades
+
+    def test_relation_owns_cascade(self) -> None:
+        """Parse relation with @cascade on owns."""
+        schema = parse_tql_schema("""
+            define
+            attribute metadata, value string;
+            relation friendship,
+                relates friend,
+                owns metadata @cascade;
+        """)
+        rel = schema.relations["friendship"]
+        assert "metadata" in rel.cascades
+
+
+class TestParseSubkeyAnnotation:
+    """Tests for @subkey annotation parsing."""
+
+    def test_entity_owns_subkey(self) -> None:
+        """Parse entity with @subkey on owns."""
+        schema = parse_tql_schema("""
+            define
+            attribute order-id, value string;
+            attribute product-id, value string;
+            entity order-item,
+                owns order-id @subkey(order),
+                owns product-id @subkey(order);
+        """)
+        entity = schema.entities["order-item"]
+        assert entity.subkeys["order-id"] == "order"
+        assert entity.subkeys["product-id"] == "order"
+
+    def test_multiple_subkey_groups(self) -> None:
+        """Parse entity with multiple subkey groups."""
+        schema = parse_tql_schema("""
+            define
+            attribute a, value string;
+            attribute b, value string;
+            attribute c, value string;
+            entity multi-keyed,
+                owns a @subkey(group1),
+                owns b @subkey(group1),
+                owns c @subkey(group2);
+        """)
+        entity = schema.entities["multi-keyed"]
+        assert entity.subkeys["a"] == "group1"
+        assert entity.subkeys["b"] == "group1"
+        assert entity.subkeys["c"] == "group2"
+
+
+class TestParseDistinctAnnotation:
+    """Tests for @distinct annotation on roles."""
+
+    def test_relates_distinct(self) -> None:
+        """Parse relation with @distinct on role."""
+        schema = parse_tql_schema("""
+            define
+            relation friendship,
+                relates friend @distinct;
+        """)
+        rel = schema.relations["friendship"]
+        assert len(rel.roles) == 1
+        assert rel.roles[0].name == "friend"
+        assert rel.roles[0].distinct is True
+
+    def test_distinct_with_card(self) -> None:
+        """Parse @distinct alongside @card."""
+        schema = parse_tql_schema("""
+            define
+            relation team-membership,
+                relates member @distinct @card(2..5);
+        """)
+        rel = schema.relations["team-membership"]
+        assert rel.roles[0].distinct is True
+        assert rel.roles[0].cardinality is not None
+        assert rel.roles[0].cardinality.min == 2
+        assert rel.roles[0].cardinality.max == 5
+
+    def test_mixed_distinct_roles(self) -> None:
+        """Parse relation with some distinct and some non-distinct roles."""
+        schema = parse_tql_schema("""
+            define
+            relation hierarchy,
+                relates parent,
+                relates child @distinct;
+        """)
+        rel = schema.relations["hierarchy"]
+        parent_role = next(r for r in rel.roles if r.name == "parent")
+        child_role = next(r for r in rel.roles if r.name == "child")
+        assert parent_role.distinct is False
+        assert child_role.distinct is True

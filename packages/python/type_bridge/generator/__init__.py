@@ -44,6 +44,7 @@ from .render import (
     render_package_init,
     render_registry,
     render_relations,
+    render_structs,
 )
 
 if TYPE_CHECKING:
@@ -111,6 +112,7 @@ def generate_models(
     attr_class_names = build_class_name_map(parsed.attributes)
     entity_class_names = build_class_name_map(parsed.entities)
     relation_class_names = build_class_name_map(parsed.relations)
+    struct_class_names = build_class_name_map(parsed.structs)
 
     # Generate and write files
     (output / "attributes.py").write_text(
@@ -134,6 +136,11 @@ def generate_models(
     if functions_content:
         (output / "functions.py").write_text(functions_content, encoding="utf-8")
         functions_present = True
+
+    # Render structs if present
+    structs_content = render_structs(parsed, struct_class_names)
+    if structs_content:
+        (output / "structs.py").write_text(structs_content, encoding="utf-8")
 
     # Render registry with pre-computed metadata
     (output / "registry.py").write_text(
