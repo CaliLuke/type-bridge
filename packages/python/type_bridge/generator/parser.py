@@ -19,6 +19,8 @@ from .models import (
     ParsedSchema,
     RelationSpec,
     RoleSpec,
+    StructFieldSpec,
+    StructSpec,
 )
 
 logger = logging.getLogger(__name__)
@@ -125,8 +127,8 @@ class SchemaTransformer(Transformer):
             if isinstance(item, dict):  # sub_clause or abstract_annotation
                 opts.update(item)
             elif isinstance(item, tuple):
-                # Check if it's owns_statement (4 elements) or plays_statement (2 elements)
-                if len(item) == 4:
+                # Check if it's owns_statement (6 elements) or plays_statement (2 elements)
+                if len(item) == 6:
                     owns_list.append(item)
                 elif len(item) == 2:
                     plays_list.append(item)
@@ -136,15 +138,21 @@ class SchemaTransformer(Transformer):
         owns_order = []
         keys = set()
         uniques = set()
+        cascades = set()
+        subkeys: dict[str, str] = {}
         cardinalities = {}
 
-        for attr, card, is_key, is_unique in owns_list:
+        for attr, card, is_key, is_unique, is_cascade, subkey_group in owns_list:
             owns_set.add(attr)
             owns_order.append(attr)
             if is_key:
                 keys.add(attr)
             if is_unique:
                 uniques.add(attr)
+            if is_cascade:
+                cascades.add(attr)
+            if subkey_group:
+                subkeys[attr] = subkey_group
             if card:
                 cardinalities[attr] = card
 
@@ -166,6 +174,8 @@ class SchemaTransformer(Transformer):
             abstract=opts.get("abstract", False),
             keys=keys,
             uniques=uniques,
+            cascades=cascades,
+            subkeys=subkeys,
             cardinalities=cardinalities,
             plays_cardinalities=plays_cardinalities,
             annotations=self.entity_annotations.get(name, {}),
@@ -175,7 +185,9 @@ class SchemaTransformer(Transformer):
     def entity_clause(self, items: list[Any]) -> Any:
         return items[0]
 
-    def owns_statement(self, items: list[Any]) -> tuple[str, Cardinality | None, bool, bool]:
+    def owns_statement(
+        self, items: list[Any]
+    ) -> tuple[str, Cardinality | None, bool, bool, bool, str | None]:
         name = str(items[0])
         opts = items[1] or {} if len(items) > 1 else {}
         return (
@@ -183,6 +195,8 @@ class SchemaTransformer(Transformer):
             opts.get("card"),
             opts.get("key", False),
             opts.get("unique", False),
+            opts.get("cascade", False),
+            opts.get("subkey"),
         )
 
     def owns_opts(self, items: list[Any]) -> dict[str, Any]:
@@ -196,6 +210,12 @@ class SchemaTransformer(Transformer):
 
     def unique_annotation(self, items: list[Any]) -> dict[str, bool]:
         return {"unique": True}
+
+    def cascade_annotation(self, items: list[Any]) -> dict[str, bool]:
+        return {"cascade": True}
+
+    def subkey_annotation(self, items: list[Any]) -> dict[str, str]:
+        return {"subkey": str(items[0])}
 
     def card_annotation(self, items: list[Any]) -> dict[str, Cardinality]:
         # Filter None (from optional grammar groups)
@@ -253,8 +273,8 @@ class SchemaTransformer(Transformer):
             elif isinstance(item, RoleSpec):  # relates_statement
                 roles.append(item)
             elif isinstance(item, tuple):
-                # Check if it's owns_statement (4 elements) or plays_statement (2 elements)
-                if len(item) == 4:
+                # Check if it's owns_statement (6 elements) or plays_statement (2 elements)
+                if len(item) == 6:
                     owns_list.append(item)
                 elif len(item) == 2:
                     # plays_statement returns (role_ref, card) - just use role_ref
@@ -265,15 +285,21 @@ class SchemaTransformer(Transformer):
         owns_order = []
         keys = set()
         uniques = set()
+        cascades = set()
+        subkeys: dict[str, str] = {}
         cardinalities = {}
 
-        for attr, card, is_key, is_unique in owns_list:
+        for attr, card, is_key, is_unique, is_cascade, subkey_group in owns_list:
             owns_set.add(attr)
             owns_order.append(attr)
             if is_key:
                 keys.add(attr)
             if is_unique:
                 uniques.add(attr)
+            if is_cascade:
+                cascades.add(attr)
+            if subkey_group:
+                subkeys[attr] = subkey_group
             if card:
                 cardinalities[attr] = card
 
@@ -292,6 +318,8 @@ class SchemaTransformer(Transformer):
             abstract=opts.get("abstract", False),
             keys=keys,
             uniques=uniques,
+            cascades=cascades,
+            subkeys=subkeys,
             cardinalities=cardinalities,
             annotations=self.relation_annotations.get(name, {}),
         )
@@ -301,19 +329,49 @@ class SchemaTransformer(Transformer):
         return items[0]
 
     def relates_statement(self, items: list[Any]) -> RoleSpec:
-        # items: [role_name, optional "as" override (Token), optional card_annotation (dict)]
+        # items: [role_name, optional "as" override (Token), optional relates_opts (dict)]
         name = str(items[0])
         overrides: str | None = None
         cardinality: Cardinality | None = None
+        distinct: bool = False
 
-        # Parse remaining items - could be: overrides (str), card (dict), or both
+        # Parse remaining items - could be: overrides (str), opts (dict), or both
         for item in items[1:]:
             if isinstance(item, str):
                 overrides = item
-            elif isinstance(item, dict) and "card" in item:
-                cardinality = item["card"]
+            elif isinstance(item, dict):
+                if "card" in item:
+                    cardinality = item["card"]
+                if "distinct" in item:
+                    distinct = item["distinct"]
 
-        return RoleSpec(name=name, overrides=overrides, cardinality=cardinality)
+        return RoleSpec(name=name, overrides=overrides, cardinality=cardinality, distinct=distinct)
+
+    def relates_opts(self, items: list[Any]) -> dict[str, Any]:
+        opts = {}
+        for item in items:
+            opts.update(item)
+        return opts
+
+    def distinct_annotation(self, items: list[Any]) -> dict[str, bool]:
+        return {"distinct": True}
+
+    # --- Structs ---
+    def struct_def(self, items: list[Any]) -> None:
+        name = str(items[0])
+        fields = items[1] if len(items) > 1 else []
+
+        struct = StructSpec(name=name, fields=fields)
+        self.schema.structs[name] = struct
+
+    def struct_fields(self, items: list[Any]) -> list[StructFieldSpec]:
+        return items
+
+    def struct_field(self, items: list[Any]) -> StructFieldSpec:
+        name = str(items[0])
+        value_type = str(items[1])
+        optional = len(items) > 2 and items[2] is not None
+        return StructFieldSpec(name=name, value_type=value_type, optional=optional)
 
     # --- Functions ---
     def function_def(self, items: list[Any]) -> None:

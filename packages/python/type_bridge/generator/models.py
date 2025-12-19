@@ -105,6 +105,8 @@ class EntitySpec:
         abstract: Whether this is an abstract entity
         keys: Attributes marked with @key
         uniques: Attributes marked with @unique
+        cascades: Attributes marked with @cascade
+        subkeys: Attributes -> subkey group name mapping (from @subkey)
         cardinalities: Per-attribute cardinality constraints
         plays_cardinalities: Per-role cardinality constraints (e.g., plays friendship:friend @card(0..5))
         annotations: Custom annotations from TQL comments (e.g., # @prefix(PROJ))
@@ -118,6 +120,8 @@ class EntitySpec:
     abstract: bool = False
     keys: set[str] = field(default_factory=set)
     uniques: set[str] = field(default_factory=set)
+    cascades: set[str] = field(default_factory=set)
+    subkeys: dict[str, str] = field(default_factory=dict)
     cardinalities: dict[str, Cardinality] = field(default_factory=dict)
     plays_cardinalities: dict[str, Cardinality] = field(default_factory=dict)
     docstring: str | None = None
@@ -136,12 +140,14 @@ class RoleSpec:
         name: The role name (e.g., "author")
         overrides: Parent role this overrides (from "as" syntax)
         cardinality: Optional cardinality constraint on the role
+        distinct: Whether this role has @distinct annotation
         annotations: Custom annotations from TQL comments
     """
 
     name: str
     overrides: str | None = None  # For "relates author as contributor"
     cardinality: Cardinality | None = None
+    distinct: bool = False
     annotations: dict[str, AnnotationValue] = field(default_factory=dict)
 
 
@@ -156,6 +162,8 @@ class RelationSpec:
         owns: Set of owned attribute names
         owns_order: Ordered list preserving TQL declaration order
         abstract: Whether this is an abstract relation
+        cascades: Attributes marked with @cascade
+        subkeys: Attributes -> subkey group name mapping (from @subkey)
         annotations: Custom annotations from TQL comments
     """
 
@@ -167,6 +175,8 @@ class RelationSpec:
     abstract: bool = False
     keys: set[str] = field(default_factory=set)
     uniques: set[str] = field(default_factory=set)
+    cascades: set[str] = field(default_factory=set)
+    subkeys: dict[str, str] = field(default_factory=dict)
     cardinalities: dict[str, Cardinality] = field(default_factory=dict)
     docstring: str | None = None
     annotations: dict[str, AnnotationValue] = field(default_factory=dict)
@@ -211,6 +221,40 @@ class FunctionSpec:
     docstring: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class StructFieldSpec:
+    """Field definition within a struct.
+
+    Attributes:
+        name: The field name (e.g., "first-name")
+        value_type: The TypeDB value type (string, integer, etc.)
+        optional: Whether the field is optional (marked with ?)
+    """
+
+    name: str
+    value_type: str
+    optional: bool = False
+
+
+@dataclass(slots=True)
+class StructSpec:
+    """Struct definition extracted from a TypeDB schema.
+
+    Structs are composite value types introduced in TypeDB 3.0.
+
+    Attributes:
+        name: The struct name (e.g., "person-name")
+        fields: List of field specifications
+        docstring: Documentation extracted from comments
+        annotations: Custom annotations from TQL comments
+    """
+
+    name: str
+    fields: list[StructFieldSpec] = field(default_factory=list)
+    docstring: str | None = None
+    annotations: dict[str, AnnotationValue] = field(default_factory=dict)
+
+
 @dataclass
 class ParsedSchema:
     """Container for all parsed schema components.
@@ -222,6 +266,7 @@ class ParsedSchema:
     entities: dict[str, EntitySpec] = field(default_factory=dict)
     relations: dict[str, RelationSpec] = field(default_factory=dict)
     functions: dict[str, FunctionSpec] = field(default_factory=dict)
+    structs: dict[str, StructSpec] = field(default_factory=dict)
 
     def accumulate_inheritance(self) -> None:
         """Propagate inherited members down all type hierarchies."""

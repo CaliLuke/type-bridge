@@ -16,6 +16,7 @@ from .functions import render_functions
 from .package import render_package_init
 from .registry import render_registry
 from .relations import render_relations
+from .structs import render_structs
 
 __all__ = [
     "render_attributes",
@@ -24,4 +25,5 @@ __all__ = [
     "render_package_init",
     "render_registry",
     "render_relations",
+    "render_structs",
 ]
