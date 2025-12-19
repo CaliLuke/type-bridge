@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .template_loader import get_template
+
 
 def render_package_init(
     attr_class_names: dict[str, str],
@@ -25,72 +27,11 @@ def render_package_init(
     Returns:
         Complete Python source code for __init__.py
     """
-    lines: list[str] = [
-        '"""TypeBridge schema package generated from a TypeDB schema."""',
-        "",
-        "from __future__ import annotations",
-        "",
-    ]
-
-    if include_schema_loader:
-        lines.extend(
-            [
-                "from importlib import resources",
-                "",
-            ]
-        )
-
-    imports = ["attributes", "entities", "registry", "relations"]
+    module_imports = ["attributes", "entities", "registry", "relations"]
     if functions_present:
-        imports.append("functions")
+        module_imports.append("functions")
+    module_imports = sorted(module_imports)
 
-    lines.extend(
-        [
-            f"from . import {', '.join(sorted(imports))}",
-            "",
-            f'SCHEMA_VERSION = "{schema_version}"',
-            "",
-            "",
-        ]
-    )
-
-    if include_schema_loader:
-        lines.extend(
-            [
-                "def schema_text() -> str:",
-                '    """Return the canonical TypeDB schema text bundled with the package."""',
-                "    return (",
-                "        resources.files(__package__)",
-                '        .joinpath("schema.tql")',
-                '        .read_text(encoding="utf-8")',
-                "    )",
-                "",
-                "",
-            ]
-        )
-
-    # ATTRIBUTES list
-    lines.append("ATTRIBUTES = [")
-    for name in sorted(attr_class_names):
-        lines.append(f"    attributes.{attr_class_names[name]},")
-    lines.append("]")
-    lines.append("")
-
-    # ENTITIES list
-    lines.append("ENTITIES = [")
-    for name in sorted(entity_class_names):
-        lines.append(f"    entities.{entity_class_names[name]},")
-    lines.append("]")
-    lines.append("")
-
-    # RELATIONS list
-    lines.append("RELATIONS = [")
-    for name in sorted(relation_class_names):
-        lines.append(f"    relations.{relation_class_names[name]},")
-    lines.append("]")
-    lines.append("")
-
-    # __all__ export
     all_exports = [
         "ATTRIBUTES",
         "ENTITIES",
@@ -103,13 +44,17 @@ def render_package_init(
     ]
     if functions_present:
         all_exports.append("functions")
-
     if include_schema_loader:
         all_exports.append("schema_text")
+    all_exports = sorted(all_exports)
 
-    lines.append("__all__ = [")
-    for export in sorted(all_exports):
-        lines.append(f'    "{export}",')
-    lines.append("]")
-
-    return "\n".join(lines) + "\n"
+    template = get_template("package_init.py.jinja")
+    return template.render(
+        module_imports=module_imports,
+        schema_version=schema_version,
+        include_schema_loader=include_schema_loader,
+        attributes=sorted(attr_class_names[name] for name in attr_class_names),
+        entities=sorted(entity_class_names[name] for name in entity_class_names),
+        relations=sorted(relation_class_names[name] for name in relation_class_names),
+        all_exports=all_exports,
+    )

@@ -95,7 +95,10 @@ def _extract_concept_row(item: Any) -> dict[str, Any]:
                     type_obj = concept.get_type()
                     if hasattr(type_obj, "get_label"):
                         label = type_obj.get_label()
-                        if hasattr(label, "name"):
+                        # Label can be a string directly or an object with .name
+                        if isinstance(label, str):
+                            concept_data["_type"] = label
+                        elif hasattr(label, "name"):
                             concept_data["_type"] = label.name
                 except Exception:
                     pass

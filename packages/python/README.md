@@ -363,9 +363,12 @@ uv run pytest -m "" -v                    # Run all tests
 
 - Python 3.13+
 - TypeDB 3.7.0-rc0 server (fully compatible)
-- typedb-driver>=3.7.0rc3
-- pydantic>=2.0.0
+- typedb-driver>=3.7.0
+- pydantic>=2.12.4
 - isodate==0.7.2 (for Duration type support)
+- lark>=1.1.9 (for schema parsing)
+- jinja2>=3.1.0 (for code generation)
+- typer>=0.15.0 (for CLI)
 
 ## Release Notes
 
