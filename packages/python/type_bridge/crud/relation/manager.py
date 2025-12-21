@@ -1315,6 +1315,8 @@ class RelationManager[R: Relation]:
 
             for role_name in roles:
                 entity = relation.__dict__.get(role_name)
+                if entity is None:
+                    continue
                 role_var = f"${role_name}"
                 role = roles[role_name]
                 role_parts.append(f"{role.role_name}: {role_var}")
