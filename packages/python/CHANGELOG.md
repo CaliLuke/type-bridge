@@ -2,6 +2,67 @@
 
 All notable changes to TypeBridge will be documented in this file.
 
+## [1.2.0] - 2025-12-22
+
+### New Features
+
+#### TypeDB 3.0 Structs Support (PR #71)
+- **Parse and generate Python code for TypeDB struct types**
+  - Structs are value types composed of named fields
+  - Full code generator support for struct definitions
+  - Location: `type_bridge/generator/`
+
+#### Additional Annotations Support (PR #71)
+- **`@range` annotation rendering** in code generator
+  - Support for `@range(min..max)` constraints on attributes
+  - Renders as validation metadata in generated code
+
+#### Role Player IIDs (PR #70)
+- **Populate IIDs on role player entities** when fetching relations
+  - Role players now have their `_iid` field populated automatically
+  - Enables direct IID-based lookups on role players
+
+#### Generator CLI Enhancement (PR #70)
+- **New `--schema-path` CLI option** for code generator
+  - Specify custom path for schema file in generated output
+
+#### Batch Delete Error Handling
+- **`strict` parameter for `delete_many`** - Optional error handling for batch deletes
+  - When `strict=True`, raises error if any entity not found
+  - When `strict=False` (default), silently skips missing entities
+
+### Performance Improvements
+
+#### Batch Query Optimizations (PR #75)
+- **50-100x improvement for bulk operations**
+  - Batch `update_with` operations to reduce round-trips
+  - Batch `_populate_iids` for efficient IID resolution
+  - Significant performance gains for large datasets
+
+#### N+1 Query Fix (PR #73)
+- **Fix N+1 query problem in entity IID/type resolution**
+  - Previously: 1 query per entity for IID resolution
+  - Now: Single batched query for all entities
+  - Major performance improvement for `all()` and `filter().execute()`
+
+#### Batched CRUD Operations
+- **Batched `update_many` and `delete_many`** operations
+  - Efficient batch processing instead of per-entity queries
+  - Reduced database round-trips
+
+### Bug Fixes
+
+- **None check in `delete_many`** - Add None check for entity in batched delete query to prevent errors when entity list contains None values
+
+### Key Files Modified
+
+- `type_bridge/generator/parser.py` - Struct parsing support
+- `type_bridge/generator/render/` - Struct code generation
+- `type_bridge/generator/__main__.py` - `--schema-path` CLI option
+- `type_bridge/crud/entity/manager.py` - Batch operations, strict parameter
+- `type_bridge/crud/entity/query.py` - Batch IID population
+- `type_bridge/crud/relation/manager.py` - Role player IID population
+
 ## [1.1.0] - 2025-12-19
 
 ### New Features
