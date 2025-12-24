@@ -252,9 +252,7 @@ def test_parse_role_lookup_in_creates_flat_or_not_nested():
     See: https://github.com/ds1sqe/type-bridge/issues/76
     """
     values = [f"name_{i}" for i in range(100)]  # 100 values
-    _, _, role_exprs, _ = parse_role_lookup_filters(
-        Employment, {"employee__name__in": values}
-    )
+    _, _, role_exprs, _ = parse_role_lookup_filters(Employment, {"employee__name__in": values})
     role_expr = role_exprs["employee"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     assert isinstance(role_expr.inner_expr, BooleanExpr)
@@ -268,9 +266,7 @@ def test_parse_role_lookup_in_creates_flat_or_not_nested():
 
 def test_parse_role_lookup_in_single_value_no_boolean_expr():
     """Test that __in lookup with a single value returns just the comparison."""
-    _, _, role_exprs, _ = parse_role_lookup_filters(
-        Employment, {"employee__name__in": ["Alice"]}
-    )
+    _, _, role_exprs, _ = parse_role_lookup_filters(Employment, {"employee__name__in": ["Alice"]})
     role_expr = role_exprs["employee"][0]
     assert isinstance(role_expr, RolePlayerExpr)
     # Single value should not wrap in BooleanExpr
