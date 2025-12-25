@@ -372,6 +372,17 @@ uv run pytest -m "" -v                    # Run all tests
 - jinja2>=3.1.0 (for code generation)
 - typer>=0.15.0 (for CLI)
 
+## What's New in v1.2.2 (2025-12-25)
+
+**Critical Bug Fixes:**
+- 🐛 **Fixed RelationManager IID correlation** (Issue #78) - `RelationManager.all()` now correctly assigns unique IIDs to role players instead of duplicating the same IIDs across all relations
+- 🐛 **Fixed stack overflow in `__in` lookups** (Issue #76) - Large `__in` queries (75+ values) now work reliably without causing TypeDB query planner crashes
+
+**Previous Releases:**
+- v1.2.0 - TypeDB 3.0 Structs Support & Batch Query Optimizations
+- v1.1.0 - Polymorphic Entity Instantiation
+- v1.0.0 - Initial stable release
+
 ## Release Notes
 
 See the [CHANGELOG.md](CHANGELOG.md) for detailed release notes and version history.
