@@ -294,7 +294,7 @@ def test_iid_in_validates_format():
 
 def test_iid_in_combined_with_attribute_filters():
     """Test iid__in can be combined with attribute filters."""
-    from type_bridge.expressions import BooleanExpr, ComparisonExpr, IidExpr
+    from type_bridge.expressions import BooleanExpr, ComparisonExpr
 
     mgr = build_manager()
     base, exprs = mgr._parse_lookup_filters(

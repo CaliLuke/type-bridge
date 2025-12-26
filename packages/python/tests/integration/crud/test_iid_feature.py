@@ -589,6 +589,7 @@ class TestIidInLookup:
         result = emp_mgr.filter(iid__in=[emp1_iid]).execute()
 
         assert len(result) == 1
+        assert result[0].position is not None
         assert result[0].position.value == "Eng1"
 
     def test_relation_filter_role_iid_in(self):
@@ -619,6 +620,7 @@ class TestIidInLookup:
         result = emp_mgr.filter(employee__iid__in=[ivan_iid]).execute()
 
         assert len(result) == 1
+        assert result[0].position is not None
         assert result[0].position.value == "Dev"
         assert result[0].employee.name.value == "Ivan_iid_in"
 
@@ -652,5 +654,6 @@ class TestIidInLookup:
         result = emp_mgr.filter(employee__iid__in=[kate_iid, leo_iid]).execute()
 
         assert len(result) == 2
-        positions = {r.position.value for r in result}
+        assert all(r.position is not None for r in result)
+        positions = {r.position.value for r in result if r.position is not None}
         assert positions == {"Lead", "Junior"}
