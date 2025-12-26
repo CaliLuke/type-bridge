@@ -170,20 +170,20 @@ class FunctionQuery[T]:
 
         Returns:
             Match let clause like "match let $count = func();" or
-            "match let ($a, $b) in func();"
+            "match let $a, $b in func();"
         """
         vars = self._get_result_vars(result_vars)
         call = self.to_call()
 
         if self.return_type.is_stream:
             if self.return_type.is_composite:
-                var_list = f"({', '.join(vars)})"
+                var_list = ", ".join(vars)
             else:
                 var_list = vars[0]
             return f"match let {var_list} in {call};"
         else:
             if self.return_type.is_composite:
-                var_list = f"({', '.join(vars)})"
+                var_list = ", ".join(vars)
                 return f"match let {var_list} = {call};"
             else:
                 return f"match let {vars[0]} = {call};"
