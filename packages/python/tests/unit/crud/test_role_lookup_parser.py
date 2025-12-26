@@ -501,9 +501,7 @@ def test_parse_relation_iid_in_single_value():
     """Test iid__in with single value returns just IidExpr."""
     from type_bridge.expressions import IidExpr
 
-    _, _, _, attr_exprs = parse_role_lookup_filters(
-        Employment, {"iid__in": ["0x1a2b3c4d"]}
-    )
+    _, _, _, attr_exprs = parse_role_lookup_filters(Employment, {"iid__in": ["0x1a2b3c4d"]})
     assert len(attr_exprs) == 1
     assert isinstance(attr_exprs[0], IidExpr)
 

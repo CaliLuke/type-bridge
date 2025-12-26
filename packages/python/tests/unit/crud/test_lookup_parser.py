@@ -231,9 +231,7 @@ def test_iid_in_builds_or_expression():
     from type_bridge.expressions import BooleanExpr, IidExpr
 
     mgr = build_manager()
-    base, exprs = mgr._parse_lookup_filters(
-        {"iid__in": ["0x1a2b3c4d", "0x5e6f7a8b"]}
-    )
+    base, exprs = mgr._parse_lookup_filters({"iid__in": ["0x1a2b3c4d", "0x5e6f7a8b"]})
     assert base == {}
     assert len(exprs) == 1
     expr = exprs[0]

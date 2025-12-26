@@ -24,9 +24,7 @@ def validate_iid(iid: str) -> None:
         ValueError: If IID format is invalid
     """
     if not IID_PATTERN.match(iid):
-        raise ValueError(
-            f"Invalid IID format: '{iid}'. Expected format: 0x followed by hex digits"
-        )
+        raise ValueError(f"Invalid IID format: '{iid}'. Expected format: 0x followed by hex digits")
 
 
 class IidExpr(Expression):
