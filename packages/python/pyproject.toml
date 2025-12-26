@@ -54,6 +54,28 @@ dev = [
 python = ".venv"
 extra-paths = ["."]
 
+[tool.ty.rules]
+# Metaclass-generated __init__ kwargs cause false positives
+unknown-argument = "warn"
+# Dynamic attributes from metaclass cause false positives
+unresolved-attribute = "warn"
+# Dynamic method calls cause false positives
+call-non-callable = "warn"
+# Type variance issues with dynamic model types
+invalid-argument-type = "warn"
+
+# Exclude examples and tests from strict checking (heavy metaclass usage)
+[[tool.ty.overrides]]
+include = ["tests/**", "examples/**"]
+
+[tool.ty.overrides.rules]
+unknown-argument = "ignore"
+unresolved-attribute = "ignore"
+call-non-callable = "ignore"
+invalid-argument-type = "ignore"
+unsupported-operator = "ignore"
+invalid-assignment = "ignore"
+
 [tool.mypy]
 python_version = "3.13"
 ignore_missing_imports = false
