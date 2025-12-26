@@ -253,8 +253,8 @@ class TestCompositeFunction:
     """Tests for parameterized function with composite return type.
 
     Note: TypeDB 3.x does not support destructuring tuples from stream functions
-    directly with `let ($a, $b) in func()` syntax. Composite returns work for
-    non-stream functions using `let ($a, $b) = func()`.
+    directly with `let $a, $b in func()` syntax. Composite returns work for
+    non-stream functions using `let $a, $b = func()`.
     """
 
     def test_composite_function_query_generation(self) -> None:
@@ -266,7 +266,7 @@ class TestCompositeFunction:
         )
 
         query = fn.to_query()
-        assert "match let ($artifact_id, $artifact_score) in get-artifacts-with-score(80);" in query
+        assert "match let $artifact_id, $artifact_score in get-artifacts-with-score(80);" in query
         assert '"artifact_id": $artifact_id' in query
         assert '"artifact_score": $artifact_score' in query
 
