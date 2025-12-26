@@ -181,7 +181,10 @@ class TestFunctionQueryFetch:
             name="count-all",
             return_type=ReturnType(["integer"]),
         )
-        assert fn.to_fetch(result_vars=["my_count"], fetch_keys=["count"]) == 'fetch { "count": $my_count };'
+        assert (
+            fn.to_fetch(result_vars=["my_count"], fetch_keys=["count"])
+            == 'fetch { "count": $my_count };'
+        )
 
 
 class TestFunctionQueryFullQuery:
@@ -323,10 +326,7 @@ class TestFunctionQueryRealWorldExamples:
             return_type=ReturnType(["integer"]),
         )
         query = fn.to_query()
-        expected = (
-            "match let $integer = count-artifacts();\n"
-            'fetch { "integer": $integer };'
-        )
+        expected = 'match let $integer = count-artifacts();\nfetch { "integer": $integer };'
         assert query == expected
 
     def test_list_user_artifact_ids(self) -> None:

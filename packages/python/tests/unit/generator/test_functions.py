@@ -161,8 +161,7 @@ class TestRenderFunctions:
         source = render_functions(schema)
 
         assert (
-            "def calculate_age(birth_date: date | str) -> FunctionQuery[Iterator[int]]:"
-            in source
+            "def calculate_age(birth_date: date | str) -> FunctionQuery[Iterator[int]]:" in source
         )
         assert 'name="calculate-age"' in source
         assert 'args=[("$birth-date", birth_date)]' in source

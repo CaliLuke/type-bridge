@@ -268,7 +268,9 @@ def render_functions(schema: ParsedSchema) -> str:
         lines.append("    return FunctionQuery(")
         lines.append(f'        name="{ctx.name}",')
         lines.append(f"        args={args_str},")
-        lines.append(f"        return_type=ReturnType([{return_types_str}], is_stream={is_stream_str}),")
+        lines.append(
+            f"        return_type=ReturnType([{return_types_str}], is_stream={is_stream_str}),"
+        )
         lines.append("    )")
         lines.append("")
         lines.append("")
