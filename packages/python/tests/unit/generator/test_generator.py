@@ -255,6 +255,98 @@ class TestRenderRelations:
 
         assert "since: attributes.Since" in source
 
+    def test_relation_optional_attribute(self) -> None:
+        """Render relation with optional attribute (no @card constraint)."""
+        schema = parse_tql_schema("""
+            define
+            attribute sequence_index, value integer;
+            entity milestone,
+                plays task_grouping:milestone;
+            entity task,
+                plays task_grouping:task;
+
+            define
+            relation task_grouping,
+                relates milestone @card(1),
+                relates task @card(0..),
+                owns sequence_index;
+        """)
+        attr_names = build_class_name_map(schema.attributes)
+        entity_names = build_class_name_map(schema.entities)
+        relation_names = build_class_name_map(schema.relations)
+        source = render_relations(schema, attr_names, entity_names, relation_names)
+
+        # Without @card constraint, attribute should be optional
+        assert "sequence_index: attributes.Sequence_index | None = None" in source
+
+    def test_relation_required_attribute(self) -> None:
+        """Render relation with required attribute (@card(1))."""
+        schema = parse_tql_schema("""
+            define
+            attribute weight, value double;
+            entity node,
+                plays edge:endpoint;
+
+            define
+            relation edge,
+                relates endpoint,
+                owns weight @card(1);
+        """)
+        attr_names = build_class_name_map(schema.attributes)
+        entity_names = build_class_name_map(schema.entities)
+        relation_names = build_class_name_map(schema.relations)
+        source = render_relations(schema, attr_names, entity_names, relation_names)
+
+        # With @card(1), attribute should be required (no | None = None)
+        assert "weight: attributes.Weight" in source
+        assert "weight: attributes.Weight | None" not in source
+
+    def test_relation_key_attribute(self) -> None:
+        """Render relation with @key attribute."""
+        schema = parse_tql_schema("""
+            define
+            attribute edge_id, value string;
+            entity node,
+                plays connection:endpoint;
+
+            define
+            relation connection,
+                relates endpoint,
+                owns edge_id @key;
+        """)
+        attr_names = build_class_name_map(schema.attributes)
+        entity_names = build_class_name_map(schema.entities)
+        relation_names = build_class_name_map(schema.relations)
+        source = render_relations(schema, attr_names, entity_names, relation_names)
+
+        # With @key, attribute should use Flag(Key)
+        assert "edge_id: attributes.Edge_id = Flag(Key)" in source
+        assert "from type_bridge import" in source
+        assert "Flag" in source
+        assert "Key" in source
+
+    def test_relation_multi_value_attribute(self) -> None:
+        """Render relation with multi-value attribute (@card(0..))."""
+        schema = parse_tql_schema("""
+            define
+            attribute tag, value string;
+            entity item,
+                plays tagging:item;
+
+            define
+            relation tagging,
+                relates item,
+                owns tag @card(0..);
+        """)
+        attr_names = build_class_name_map(schema.attributes)
+        entity_names = build_class_name_map(schema.entities)
+        relation_names = build_class_name_map(schema.relations)
+        source = render_relations(schema, attr_names, entity_names, relation_names)
+
+        # With @card(0..), attribute should be a list
+        assert "list[attributes.Tag]" in source
+        assert "Card" in source
+
 
 class TestComingSoonAnnotationStubs:
     """Tests for coming-soon annotation stubs (TODO comments in generated code)."""
