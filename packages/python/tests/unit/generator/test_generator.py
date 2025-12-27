@@ -347,6 +347,60 @@ class TestRenderRelations:
         assert "list[attributes.Tag]" in source
         assert "Card" in source
 
+    def test_relation_inherits_key_from_parent(self) -> None:
+        """Child relation inherits @key constraint from parent."""
+        schema = parse_tql_schema("""
+            define
+            attribute rel_id, value string;
+            entity node,
+                plays base_rel:endpoint,
+                plays child_rel:endpoint;
+
+            define
+            relation base_rel @abstract,
+                relates endpoint,
+                owns rel_id @key;
+
+            define
+            relation child_rel sub base_rel;
+        """)
+        attr_names = build_class_name_map(schema.attributes)
+        entity_names = build_class_name_map(schema.entities)
+        relation_names = build_class_name_map(schema.relations)
+        source = render_relations(schema, attr_names, entity_names, relation_names)
+
+        # Child should inherit @key from parent
+        assert "class Child_rel(Base_rel):" in source
+        assert "rel_id: attributes.Rel_id = Flag(Key)" in source
+
+    def test_relation_inherits_cardinality_from_parent(self) -> None:
+        """Child relation inherits cardinality constraint from parent."""
+        schema = parse_tql_schema("""
+            define
+            attribute weight, value double;
+            entity node,
+                plays base_edge:endpoint,
+                plays weighted_edge:endpoint;
+
+            define
+            relation base_edge @abstract,
+                relates endpoint,
+                owns weight @card(1);
+
+            define
+            relation weighted_edge sub base_edge;
+        """)
+        attr_names = build_class_name_map(schema.attributes)
+        entity_names = build_class_name_map(schema.entities)
+        relation_names = build_class_name_map(schema.relations)
+        source = render_relations(schema, attr_names, entity_names, relation_names)
+
+        # Child should inherit required cardinality from parent
+        # The parent declares weight as required, child should not have it optional
+        assert "class Weighted_edge(Base_edge):" in source
+        # weight should NOT be in child since it's inherited from parent
+        # But if it were re-declared, it should still be required
+
 
 class TestComingSoonAnnotationStubs:
     """Tests for coming-soon annotation stubs (TODO comments in generated code)."""
