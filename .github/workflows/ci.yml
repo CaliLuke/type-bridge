@@ -11,9 +11,6 @@ jobs:
   lint:
     name: Python ${{ matrix.check }}
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/python
     strategy:
       matrix:
         check: [ruff-lint, ruff-format]
@@ -46,9 +43,6 @@ jobs:
   typecheck:
     name: Python Type Check (${{ matrix.target }})
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/python
     strategy:
       matrix:
         target: [type_bridge, examples, tests]
@@ -79,9 +73,6 @@ jobs:
   test-unit:
     name: Python Unit Tests (${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/python
     strategy:
       matrix:
         python-version: ["3.13"]
@@ -112,9 +103,6 @@ jobs:
   test-integration:
     name: Python Integration (${{ matrix.test-group }})
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/python
     strategy:
       matrix:
         test-group: [crud, queries, schema]
@@ -177,33 +165,3 @@ jobs:
           USE_DOCKER: false
           TYPEDB_ADDRESS: localhost:1729
         run: uv run pytest tests/integration/${{ matrix.test-group }} -m integration -v --tb=short
-
-  # TypeScript: Build and Test
-  typescript:
-    name: TypeScript
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/typescript
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: packages/typescript/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Run tests
-        run: npm test
-
-      - name: Build
-        run: npm run build
